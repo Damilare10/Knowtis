@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1
+#
+# Knowtis backend — Celery worker image.
+# Runs `celery -A app.celery_app worker -l info` (see app/celery_app.py).
+# Shares the same base and dependency layers as Dockerfile (cached identically);
+# only the process entrypoint differs.
+
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    APP_HOME=/app
+
+WORKDIR ${APP_HOME}
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        libpq-dev \
+        curl \
+        libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt ./
+RUN pip install --upgrade pip \
+    && pip install -r requirements.txt \
+    && pip install psycopg2-binary pgvector
+
+COPY . .
+
+# No HTTP port to expose; the worker talks to Redis (broker) and Postgres only.
+CMD ["celery", "-A", "app.celery_app", "worker", "-l", "info"]

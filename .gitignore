@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment
+.env
+backend/.env
+whatsapp_connector/.env
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.kilo/
+.claude/
+.agents/
+.playwright-mcp/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# WhatsApp auth
+whatsapp_connector/auth_info_baileys/
+
+# Frontend
+frontend/.next/
+frontend/node_modules/
+frontend/out/
+frontend/tsconfig.tsbuildinfo
+frontend/next-env.d.ts
+
+# Build
+dist/
+build/
+*.tsbuildinfo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temp
+*.tmp
+*.temp

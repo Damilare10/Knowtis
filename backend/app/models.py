@@ -113,7 +113,7 @@ class AcademicEvent(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    group_id = Column(UUID(as_uuid=True), ForeignKey("whatsapp_groups.id", ondelete="CASCADE"), nullable=False)
+    group_id = Column(UUID(as_uuid=True), ForeignKey("whatsapp_groups.id", ondelete="CASCADE"), nullable=True)
     event_type = Column(SQLEnum(EventType), nullable=False, index=True)
     course_code = Column(String(50), index=True)
     title = Column(String(500), nullable=False)
@@ -176,7 +176,7 @@ class OCRExtraction(Base):
     extraction_confidence = Column(Float)
     extraction_strategy = Column(String(50))
     user_instructions = Column(Text)
-    filtered_events = Column(JSONB)
+    filtered_events = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
