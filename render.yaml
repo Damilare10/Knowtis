@@ -9,6 +9,16 @@
 
 services:
   # ══════════════════════════════════════════════════════════════════════════════
+  # PostgreSQL Database (Free Tier - expires after 90 days)
+  # ══════════════════════════════════════════════════════════════════════════════
+  - type: pserv
+    name: knowtis-postgres
+    plan: free
+    region: oregon
+    # Note: pgvector extension needs to be enabled manually after creation
+    # Connect via psql and run: CREATE EXTENSION IF NOT EXISTS vector;
+
+  # ══════════════════════════════════════════════════════════════════════════════
   # FastAPI Backend (Free Tier - spins down after 15 min inactivity)
   # ══════════════════════════════════════════════════════════════════════════════
   - type: web
@@ -21,10 +31,11 @@ services:
     envVars:
       - key: PORT
         value: 8000
-      # DATABASE_URL and REDIS_URL must be set manually after creating
-      # PostgreSQL and Redis instances separately
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: knowtis-postgres
+          property: connectionString
+      # Use Upstash Redis (free tier) - set manually after creating
       - key: REDIS_URL
         sync: false
       - key: CELERY_BROKER_URL
@@ -75,7 +86,9 @@ services:
     dockerContext: ./backend
     envVars:
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: knowtis-postgres
+          property: connectionString
       - key: REDIS_URL
         sync: false
       - key: CELERY_BROKER_URL
@@ -93,8 +106,7 @@ services:
 
   # ══════════════════════════════════════════════════════════════════════════════
   # WhatsApp Connector (Node.js - Free Tier)
-  # Note: No persistent disk on free tier - auth state will reset on restart
-  # Use external storage (Neon, Supabase) for auth persistence
+  # Note: No persistent disk on free tier - auth resets on restart
   # ══════════════════════════════════════════════════════════════════════════════
   - type: web
     name: knowtis-whatsapp
