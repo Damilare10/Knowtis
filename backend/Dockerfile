@@ -36,10 +36,12 @@ RUN pip install --upgrade pip \
 # Copy application code.
 COPY . .
 
+RUN chmod +x start.sh
+
 EXPOSE 8000
 
 # Liveness probe: the app exposes GET /health -> {"status": "healthy"}.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
     CMD curl -fsS http://localhost:8000/health || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["./start.sh"]
