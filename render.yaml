@@ -37,15 +37,18 @@ services:
           property: connectionString
       # Use native Render Key Value (Redis/Valkey) service
       - key: REDIS_URL
-        fromDatabase:
+        fromService:
+          type: keyvalue
           name: knowtis-redis
           property: connectionString
       - key: CELERY_BROKER_URL
-        fromDatabase:
+        fromService:
+          type: keyvalue
           name: knowtis-redis
           property: connectionString
       - key: CELERY_RESULT_BACKEND
-        fromDatabase:
+        fromService:
+          type: keyvalue
           name: knowtis-redis
           property: connectionString
       - key: JWT_SECRET_KEY
@@ -96,15 +99,18 @@ services:
           name: knowtis-postgres
           property: connectionString
       - key: REDIS_URL
-        fromDatabase:
+        fromService:
+          type: keyvalue
           name: knowtis-redis
           property: connectionString
       - key: CELERY_BROKER_URL
-        fromDatabase:
+        fromService:
+          type: keyvalue
           name: knowtis-redis
           property: connectionString
       - key: CELERY_RESULT_BACKEND
-        fromDatabase:
+        fromService:
+          type: keyvalue
           name: knowtis-redis
           property: connectionString
       - key: JWT_SECRET_KEY
