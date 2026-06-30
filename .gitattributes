@@ -1,0 +1,2 @@
+# Force Unix (LF) line endings for the backend startup script to avoid execution errors in Docker
+backend/start.sh text eol=lf
