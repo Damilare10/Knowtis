@@ -16,8 +16,6 @@ services:
     plan: free
     region: oregon
     ipAllowList: []
-    databaseName: knowtis
-    databaseUser: knowtis_user
     # Note: pgvector extension needs to be enabled manually after creation
     # Connect via psql and run: CREATE EXTENSION IF NOT EXISTS vector;
 
