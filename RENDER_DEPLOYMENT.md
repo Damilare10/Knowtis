@@ -37,7 +37,7 @@ Ensure these files exist in your repo (already created):
 6. Click **"Apply"**
 
 Render will create all 5 services automatically:
-- `knowtis-db` (PostgreSQL)
+- `knowtis-postgres` (PostgreSQL)
 - `knowtis-redis` (Redis)
 - `knowtis-backend` (FastAPI)
 - `knowtis-worker` (Celery)
@@ -121,11 +121,23 @@ GET https://knowtis-whatsapp.onrender.com/status
 
 ### WhatsApp Authentication Persistence
 
-The WhatsApp connector uses a **persistent disk** mounted at `/opt/render/project/src/auth_info_baileys/`. This means:
+> [!WARNING]
+> **Free Tier Limitation**: Render does not support persistent disks on the Free Tier. This means WhatsApp authentication state will reset whenever the service restarts or redeploys, and you will need to re-scan the QR code.
+>
+> **To enable persistence (surviving restarts and crashes)**:
+> 1. Upgrade the `knowtis-whatsapp` service plan to **Starter** ($7/month).
+> 2. In your `render.yaml`, uncomment the `disk:` block under `knowtis-whatsapp`:
+>    ```yaml
+>    disk:
+>      name: whatsapp-auth
+>      mountPath: /opt/render/project/src/whatsapp_connector/auth_info_baileys
+>      sizeGB: 1
+>    ```
+> 3. Save and redeploy the blueprint.
 
-✅ Authentication survives service restarts
+✅ Once upgraded, authentication survives service restarts
 ✅ No need to re-scan QR code after crashes
-⚠️ You'll need to re-authenticate after **redeployments** (code changes)
+⚠️ You will still need to re-authenticate after code changes/redeployments (due to how Baileys cache behaves)
 
 ### Database Limits
 

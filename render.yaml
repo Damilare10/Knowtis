@@ -7,17 +7,17 @@
 # 3. Render will automatically provision all services defined below
 # 4. Set required environment variables in Render Dashboard after deployment
 
-services:
+databases:
   # ══════════════════════════════════════════════════════════════════════════════
   # PostgreSQL Database (Free Tier - expires after 90 days)
   # ══════════════════════════════════════════════════════════════════════════════
-  - type: pserv
-    name: knowtis-postgres
+  - name: knowtis-postgres
     plan: free
     region: oregon
     # Note: pgvector extension needs to be enabled manually after creation
     # Connect via psql and run: CREATE EXTENSION IF NOT EXISTS vector;
 
+services:
   # ══════════════════════════════════════════════════════════════════════════════
   # FastAPI Backend (Free Tier - spins down after 15 min inactivity)
   # ══════════════════════════════════════════════════════════════════════════════
@@ -35,13 +35,19 @@ services:
         fromDatabase:
           name: knowtis-postgres
           property: connectionString
-      # Use Upstash Redis (free tier) - set manually after creating
+      # Use native Render Key Value (Redis/Valkey) service
       - key: REDIS_URL
-        sync: false
+        fromDatabase:
+          name: knowtis-redis
+          property: connectionString
       - key: CELERY_BROKER_URL
-        sync: false
+        fromDatabase:
+          name: knowtis-redis
+          property: connectionString
       - key: CELERY_RESULT_BACKEND
-        sync: false
+        fromDatabase:
+          name: knowtis-redis
+          property: connectionString
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: REFRESH_TOKEN_SECRET
@@ -90,13 +96,22 @@ services:
           name: knowtis-postgres
           property: connectionString
       - key: REDIS_URL
-        sync: false
+        fromDatabase:
+          name: knowtis-redis
+          property: connectionString
       - key: CELERY_BROKER_URL
-        sync: false
+        fromDatabase:
+          name: knowtis-redis
+          property: connectionString
       - key: CELERY_RESULT_BACKEND
-        sync: false
+        fromDatabase:
+          name: knowtis-redis
+          property: connectionString
       - key: JWT_SECRET_KEY
-        sync: false
+        fromService:
+          type: web
+          name: knowtis-backend
+          envVarKey: JWT_SECRET_KEY
       - key: SIMILARITY_THRESHOLD
         value: 0.75
       - key: LOG_LEVEL
@@ -125,3 +140,18 @@ services:
         sync: false
       - key: NODE_ENV
         value: production
+    # Disk is optional - Render Free Tier does not support persistent disks.
+    # To persist WhatsApp auth across restarts, upgrade this service to "starter"
+    # plan and uncomment the disk configuration below:
+    # disk:
+    #   name: whatsapp-auth
+    #   mountPath: /opt/render/project/src/whatsapp_connector/auth_info_baileys
+    #   sizeGB: 1
+
+  # ══════════════════════════════════════════════════════════════════════════════
+  # Redis / Valkey (Free Tier - 25MB storage)
+  # ══════════════════════════════════════════════════════════════════════════════
+  - type: keyvalue
+    name: knowtis-redis
+    plan: free
+    region: oregon
