@@ -155,3 +155,4 @@ services:
     name: knowtis-redis
     plan: free
     region: oregon
+    ipAllowList: []
