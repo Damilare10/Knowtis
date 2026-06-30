@@ -9,33 +9,11 @@
 
 services:
   # ══════════════════════════════════════════════════════════════════════════════
-  # PostgreSQL Database (Free Tier - expires after 90 days)
-  # ══════════════════════════════════════════════════════════════════════════════
-  - type: pserv
-    name: knowtis-postgres
-    plan: free
-    region: oregon
-    ipAllowList: []
-    # Note: pgvector extension needs to be enabled manually after creation
-    # Connect via psql and run: CREATE EXTENSION IF NOT EXISTS vector;
-
-  # ══════════════════════════════════════════════════════════════════════════════
-  # Redis Cache (Free Tier)
-  # ══════════════════════════════════════════════════════════════════════════════
-  - type: redis
-    name: knowtis-redis
-    plan: free
-    region: oregon
-    maxmemoryPolicy: allkeys-lru
-    ipAllowList: []
-
-  # ══════════════════════════════════════════════════════════════════════════════
   # FastAPI Backend (Free Tier - spins down after 15 min inactivity)
   # ══════════════════════════════════════════════════════════════════════════════
   - type: web
     name: knowtis-backend
     runtime: docker
-    region: oregon
     plan: free
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
@@ -43,25 +21,16 @@ services:
     envVars:
       - key: PORT
         value: 8000
+      # DATABASE_URL and REDIS_URL must be set manually after creating
+      # PostgreSQL and Redis instances separately
       - key: DATABASE_URL
-        fromDatabase:
-          name: knowtis-postgres
-          property: connectionString
+        sync: false
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: knowtis-redis
-          property: connectionString
+        sync: false
       - key: CELERY_BROKER_URL
-        fromService:
-          type: redis
-          name: knowtis-redis
-          property: connectionString
+        sync: false
       - key: CELERY_RESULT_BACKEND
-        fromService:
-          type: redis
-          name: knowtis-redis
-          property: connectionString
+        sync: false
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: REFRESH_TOKEN_SECRET
@@ -101,30 +70,18 @@ services:
   - type: worker
     name: knowtis-worker
     runtime: docker
-    region: oregon
     plan: free
     dockerfilePath: ./backend/Dockerfile.worker
     dockerContext: ./backend
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: knowtis-postgres
-          property: connectionString
+        sync: false
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: knowtis-redis
-          property: connectionString
+        sync: false
       - key: CELERY_BROKER_URL
-        fromService:
-          type: redis
-          name: knowtis-redis
-          property: connectionString
+        sync: false
       - key: CELERY_RESULT_BACKEND
-        fromService:
-          type: redis
-          name: knowtis-redis
-          property: connectionString
+        sync: false
       - key: JWT_SECRET_KEY
         sync: false
       - key: SIMILARITY_THRESHOLD
@@ -136,20 +93,17 @@ services:
 
   # ══════════════════════════════════════════════════════════════════════════════
   # WhatsApp Connector (Node.js - Free Tier)
+  # Note: No persistent disk on free tier - auth state will reset on restart
+  # Use external storage (Neon, Supabase) for auth persistence
   # ══════════════════════════════════════════════════════════════════════════════
   - type: web
     name: knowtis-whatsapp
     runtime: node
-    region: oregon
     plan: free
     buildCommand: npm install
-    startCommand: npm start
+    startCommand: node server.js
     rootDir: ./whatsapp_connector
     healthCheckPath: /status
-    disk:
-      name: whatsapp-auth-storage
-      mountPath: /opt/render/project/src/auth_info_baileys
-      sizeGB: 1
     envVars:
       - key: PORT
         value: 3001
