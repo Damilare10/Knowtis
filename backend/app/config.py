@@ -27,6 +27,7 @@ class Settings(BaseModel):
     # WhatsApp Connector config
     whatsapp_connector_url: str = os.getenv("WHATSAPP_CONNECTOR_URL", "http://localhost:3001")
     whatsapp_connector_timeout: float = float(os.getenv("WHATSAPP_CONNECTOR_TIMEOUT", "30.0"))
+    whatsapp_connector_webhook_secret: str = os.getenv("WHATSAPP_CONNECTOR_WEBHOOK_SECRET", "")
     
     # WhatsApp Listener config
     whatsapp_listener_enabled: bool = os.getenv("WHATSAPP_LISTENER_ENABLED", "True").lower() in ("true", "1", "yes")

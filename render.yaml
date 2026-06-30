@@ -83,6 +83,11 @@ services:
         value: 10/hour
       - key: RATE_LIMIT_OCR_PREMIUM
         value: 50/hour
+      - key: WHATSAPP_CONNECTOR_WEBHOOK_SECRET
+        fromService:
+          type: web
+          name: knowtis-whatsapp
+          envVarKey: WEBHOOK_SECRET
 
   # ══════════════════════════════════════════════════════════════════════════════
   # Celery Worker (Background Service - Free Tier)
