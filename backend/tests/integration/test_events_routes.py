@@ -20,7 +20,7 @@ def test_create_event(client, test_user_data, test_event_data, db):
         headers=headers
     )
     
-    assert response.status_code == 200
+    assert response.status_code == 201
     data = response.json()
     assert data["title"] == test_event_data["title"]
     assert data["event_type"] == test_event_data["event_type"]

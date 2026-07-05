@@ -3,7 +3,12 @@ Unit Tests - Message Classifier
 """
 
 import pytest
-from app.services.classifier_service import MessageClassifier, Classification, EventCategory
+from app.services.classifier_service import (
+    ClassifierCategory,
+    Classification,
+    EventCategory,
+    MessageClassifier,
+)
 
 
 def test_classify_message_signal():
@@ -46,6 +51,46 @@ def test_classify_event_type_event():
     event_type, confidence = MessageClassifier.classify_event_type(text)
     
     assert event_type == EventCategory.EVENT
+
+
+def test_classify_message_semantic_academic_context():
+    """Academic context should not require exact trigger keywords."""
+    text = "Dr. Taiwo shifted our CSC 301 assessment to Thursday morning"
+    classification, confidence = MessageClassifier.classify_message(text)
+
+    assert classification == Classification.SIGNAL
+    assert confidence > 0.5
+
+
+def test_classify_event_type_semantic_paraphrase():
+    """Category assignment should understand schedule-change paraphrases."""
+    text = "Dr. Taiwo shifted our CSC 301 assessment to Thursday morning"
+    event_type, confidence = MessageClassifier.classify_event_type(text)
+
+    assert event_type in {EventCategory.ALERT, EventCategory.DEADLINE}
+    assert confidence > 0.5
+
+
+def test_category_to_classifier_mapping():
+    assert MessageClassifier.category_to_classifier("exam") == ClassifierCategory.DEADLINE
+    assert MessageClassifier.category_to_classifier("lecture_update") == ClassifierCategory.ALERT
+    assert MessageClassifier.category_to_classifier("fee_notice") == ClassifierCategory.DEADLINE
+    assert MessageClassifier.category_to_classifier("noise") == ClassifierCategory.NOISE
+
+
+def test_classify_local_category_fallback():
+    category, confidence = MessageClassifier.classify_local_category(
+        "Dr. Taiwo shifted our CSC 301 assessment to Thursday morning"
+    )
+
+    assert category in {
+        "assignment_deadline",
+        "exam",
+        "lecture_update",
+        "event",
+        "general_announcement",
+    }
+    assert confidence > 0.5
 
 
 def test_calculate_scores():

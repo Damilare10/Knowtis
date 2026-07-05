@@ -1,0 +1,14 @@
+# Railway Configuration for Celery Worker
+# This service runs background tasks and doesn't expose HTTP endpoints
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.worker"
+
+[deploy]
+startCommand = "celery -A app.celery_app worker -l info"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# Note: Worker service doesn't need a health check path or exposed port
+# It connects to Redis (broker) and PostgreSQL only

@@ -56,6 +56,7 @@ def test_user_data():
         "email": "student@example.com",
         "username": "student1",
         "password": "securepassword123",
+        "confirm_password": "securepassword123",
         "full_name": "Test Student"
     }
 

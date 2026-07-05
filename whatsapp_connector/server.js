@@ -14,6 +14,7 @@ app.use(bodyParser.json());
 const PORT = process.env.PORT || 3001;
 const FASTAPI_WEBHOOK_URL = process.env.FASTAPI_WEBHOOK_URL || 'http://localhost:8000/api/v1/whatsapp/webhook';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
+const CONNECTOR_API_SECRET = process.env.CONNECTOR_API_SECRET || WEBHOOK_SECRET;
 
 
 let sock = null;
@@ -21,6 +22,31 @@ let connectionState = 'DISCONNECTED';
 let latestQr = null;
 let latestQrDataUrl = null;
 let botJid = null;
+
+const isLoopback = (req) => {
+  const ip = req.ip || req.connection?.remoteAddress || '';
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+};
+
+const requireConnectorAuth = (req, res, next) => {
+  if (!CONNECTOR_API_SECRET) {
+    return res.status(503).json({ detail: 'Connector API auth is not configured.' });
+  }
+
+  // Allow the local browser to open the status/QR page without a secret so
+  // users can simply click http://localhost:3001/status during local dev.
+  // Read-only status; mutating endpoints (/join, /groups) still require auth.
+  if (req.path === '/status' && isLoopback(req)) {
+    return next();
+  }
+
+  const provided = req.get('X-Connector-Secret') || (req.query && req.query.secret) || '';
+  if (provided !== CONNECTOR_API_SECRET) {
+    return res.status(401).json({ detail: 'Invalid connector secret.' });
+  }
+
+  next();
+};
 
 // Ensure auth directory exists
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
@@ -191,7 +217,7 @@ const runWhatsApp = async () => {
 };
 
 // Start Express endpoints
-app.get('/status', (req, res) => {
+app.get('/status', requireConnectorAuth, (req, res) => {
   const accept = req.headers.accept || '';
 
   if (accept.includes('text/html') || accept.includes('*/*')) {
@@ -283,7 +309,7 @@ app.get('/status', (req, res) => {
   }
 });
 
-app.post('/join', async (req, res) => {
+app.post('/join', requireConnectorAuth, async (req, res) => {
   const { invite_link } = req.body;
   if (!invite_link) {
     return res.status(400).json({ detail: 'invite_link is required' });
@@ -325,7 +351,7 @@ app.post('/join', async (req, res) => {
   }
 });
 
-app.get('/groups', async (req, res) => {
+app.get('/groups', requireConnectorAuth, async (req, res) => {
   if (connectionState !== 'CONNECTED') {
     return res.status(503).json({ detail: 'WhatsApp bot is not connected.' });
   }

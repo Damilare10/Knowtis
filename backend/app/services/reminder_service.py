@@ -6,7 +6,7 @@ import logging
 from typing import Optional, List
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from app.models import Reminder, AcademicEvent
+from app.models import Reminder, AcademicEvent, EventType
 from app.services.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,8 @@ class ReminderService:
         """Create a reminder for an event"""
         try:
             event = db.query(AcademicEvent).filter(
-                AcademicEvent.id == event_id
+                AcademicEvent.id == event_id,
+                AcademicEvent.user_id == user_id,
             ).first()
 
             if not event or not event.date_time:
@@ -36,6 +37,14 @@ class ReminderService:
 
             # Calculate reminder time
             reminder_time = event.date_time - timedelta(days=days_before)
+
+            event = db.query(AcademicEvent).filter(
+                AcademicEvent.id == event_id,
+                AcademicEvent.user_id == user_id,
+            ).first()
+            if not event:
+                logger.warning("Recurring reminder event not found or not owned: %s", event_id)
+                return None
 
             reminder = Reminder(
                 user_id=user_id,
@@ -197,3 +206,97 @@ class ReminderService:
         except Exception as e:
             logger.error(f"Error getting user reminders: {e}")
             return []
+
+    @staticmethod
+    def schedule_automatic_reminders(event: AcademicEvent, db: Session) -> List[Reminder]:
+        """
+        Dynamically schedule reminders for a newly created event based on its
+        type and urgency score, rather than using fixed hardcoded offsets.
+        """
+        if not event or not event.date_time:
+            return []
+
+        # Real-time alerts are observational updates that should notify once
+        # immediately when detected, not create future reminder rows.
+        if event.event_type == EventType.ALERT:
+            return []
+
+        # Duplicate events should never generate their own reminder schedule.
+        if getattr(event, "is_duplicate", False):
+            return []
+
+        now = datetime.utcnow()
+        time_to_event = event.date_time - now
+
+        # If the event is in the past, do not schedule reminders
+        if time_to_event <= timedelta(0):
+            return []
+
+        offsets = []
+
+        # High priority/urgent events (DEADLINE, ALERT, or urgency_score >= 0.8)
+        if event.event_type in (EventType.DEADLINE, EventType.ALERT) or event.urgency_score >= 0.8:
+            # 1. Preparation nudge (3 days before)
+            if time_to_event > timedelta(days=4):
+                offsets.append(timedelta(days=3))
+            # 2. Final day nudge (24 hours before)
+            if time_to_event > timedelta(days=1, hours=12):
+                offsets.append(timedelta(days=1))
+            # 3. Last chance nudge (3 hours before)
+            if time_to_event > timedelta(hours=4):
+                offsets.append(timedelta(hours=3))
+        
+        # Medium priority events (urgency_score between 0.5 and 0.8)
+        elif event.urgency_score >= 0.5:
+            # 1. Day before nudge (12 hours before)
+            if time_to_event > timedelta(hours=14):
+                offsets.append(timedelta(hours=12))
+            # 2. Final hours nudge (3 hours before)
+            if time_to_event > timedelta(hours=4):
+                offsets.append(timedelta(hours=3))
+        
+        # Low priority/informational events
+        else:
+            # 1. Final hours nudge (3 hours before)
+            if time_to_event > timedelta(hours=4):
+                offsets.append(timedelta(hours=3))
+
+        # If we couldn't schedule any advance reminders (e.g., event starts very soon),
+        # but the event is high priority and starts in more than 15 minutes, schedule an immediate reminder
+        if not offsets and time_to_event > timedelta(minutes=15):
+            offsets.append(timedelta(minutes=0))
+
+        created_reminders = []
+        for offset in offsets:
+            scheduled_time = event.date_time - offset
+            
+            # Ensure scheduled time is in the future
+            if scheduled_time <= now:
+                continue
+
+            # Check if this reminder already exists to prevent duplicate runs
+            exists = db.query(Reminder).filter(
+                Reminder.user_id == event.user_id,
+                Reminder.event_id == event.id,
+                Reminder.scheduled_time == scheduled_time
+            ).first()
+
+            if not exists:
+                reminder = Reminder(
+                    user_id=event.user_id,
+                    event_id=event.id,
+                    reminder_type="NOTIFICATION",
+                    delivery_channel="IN_APP",
+                    scheduled_time=scheduled_time,
+                    is_active=True
+                )
+                db.add(reminder)
+                created_reminders.append(reminder)
+
+        if created_reminders:
+            db.commit()
+            for r in created_reminders:
+                db.refresh(r)
+                logger.info(f"Automatically scheduled reminder {r.id} for event {event.id} at {r.scheduled_time}")
+
+        return created_reminders
