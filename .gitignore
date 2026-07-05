@@ -69,3 +69,8 @@ Thumbs.db
 # Temp
 *.tmp
 *.temp
+
+# Capacitor / Android build artifacts
+frontend/android/
+frontend/.env.production
+frontend/.playwright-cli/

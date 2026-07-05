@@ -18,7 +18,7 @@ export default function LoginPage() {
     e.preventDefault();
     if (!username || !password) return;
     const ok = await login({ username, password });
-    if (ok) router.push('/dashboard');
+    if (ok) router.push('/onboarding/setup');
   };
 
   return (

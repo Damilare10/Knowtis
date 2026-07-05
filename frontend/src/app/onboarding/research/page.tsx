@@ -89,7 +89,10 @@ export default function ResearchOnboardingPage() {
       });
 
       if (!res.ok) throw new Error('Unable to save onboarding answers');
-      router.replace('/calendar');
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('knowtis_onboarded', 'true');
+      }
+      router.replace('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to save onboarding answers');
       setSaving(false);

@@ -112,7 +112,7 @@ export default function RegisterPage() {
       confirm_password: confirmPassword,
       whatsapp_number: whatsappNumber.trim() || undefined,
     });
-    if (ok) router.push('/dashboard');
+    if (ok) router.push('/onboarding/setup');
   };
 
   const applySuggestion = useCallback(() => {
