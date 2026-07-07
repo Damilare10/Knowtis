@@ -102,6 +102,8 @@ const createSocket = () => {
     defaultQueryTimeoutMs: 20000,
     // Limit pre-key count to save memory
     generateHighQualityKey: false,
+    // Reduce socket timeout for faster deploys
+    syncTotalHistoryMessages: false,
   });
 
   sock.ev.on('creds.update', saveCreds);

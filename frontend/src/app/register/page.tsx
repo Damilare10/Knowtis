@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   X,
   XCircle,
+  ArrowLeft,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { authApi, GOOGLE_OAUTH_URL } from '@/lib/api';
@@ -146,12 +147,20 @@ export default function RegisterPage() {
     <main className="min-h-dvh bg-[#FBFBFA] text-[#171717] flex items-center justify-center overflow-y-auto overflow-x-hidden px-5 py-7">
       <section className="relative w-full max-w-[430px] flex flex-col">
 
-        <header className="pb-6 text-center">
+        <header className="relative pb-6 flex items-center justify-center">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            aria-label="Go back"
+            className="absolute left-0 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)] bg-white text-[var(--text-1)] shadow-sm hover:bg-[#F4F3EF] focus:outline-none"
+          >
+            <ArrowLeft className="h-4 w-4" />
+        </button>
           <Link href="/onboarding" className="inline-flex items-baseline gap-1 text-[18px] font-extrabold tracking-[-0.05em] lowercase">
             <span>know</span>
             <span className="text-[#FF5A36]">tis</span>
-          </Link>
-        </header>
+        </Link>
+      </header>
 
         <motion.div
           initial={{ opacity: 0, y: 18, scale: 0.98 }}
