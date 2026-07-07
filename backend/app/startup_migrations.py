@@ -19,15 +19,22 @@ def run_startup_migrations(engine: Engine) -> None:
     queries the affected tables.
     """
     with engine.connect() as conn:
-        result = conn.execute(
-            text(
-                "SELECT EXISTS ("
-                "  SELECT FROM information_schema.columns "
-                "  WHERE table_name = 'users' AND column_name = 'role'"
-                ")"
+        columns_to_check = ['role', 'whatsapp_number', 'fcm_token', 'ai_tokens_received']
+        needs_migration = False
+
+        for col_name in columns_to_check:
+            result = conn.execute(
+                text(
+                    "SELECT EXISTS ("
+                    "  SELECT FROM information_schema.columns "
+                    "  WHERE table_name = 'users' AND column_name = :col_name"
+                    ")"
+                ),
+                {"col_name": col_name}
             )
-        )
-        needs_migration = not result.scalar_one()
+            if not result.scalar_one():
+                needs_migration = True
+                break
 
         if needs_migration:
             logger.info("Running startup migration: adding missing users columns")
