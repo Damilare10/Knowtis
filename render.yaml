@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: knowtis-whatsapp
+    env: node
+    rootDir: whatsapp_connector
+    startCommand: node server.js
+    healthCheckPath: /health
+    healthCheckGracePeriodSeconds: 60
+    autoDeploy: true
+    envVars:
+      - key: FASTAPI_WEBHOOK_URL
+        value: https://knowtis-backend.onrender.com/api/v1/whatsapp/webhook
+      - key: CONNECTOR_API_SECRET
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false

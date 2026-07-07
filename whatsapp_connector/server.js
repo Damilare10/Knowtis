@@ -420,6 +420,22 @@ app.get('/groups', requireConnectorAuth, async (req, res) => {
   }
 });
 
+// ─── Render health check (unauthenticated) ─────────────────────────────────
+// Render's deploy health probe MUST get a 200 from an open path. /status is
+// auth-gated (401 without a secret), which is what was timing out deploys.
+
+app.get('/health', (req, res) => {
+  // Liveness-only: answer 200 the instant Express is up. We do not block on
+  // WhatsApp connection state here — that would reintroduce deploy timeouts
+  // when the bot is awaiting a QR scan (a normal, healthy-but-not-ready state).
+  res.status(200).json({
+    ok: true,
+    service: 'knowtis-whatsapp-connector',
+    status: connectionState,
+    uptime: process.uptime(),
+  });
+});
+
 // ─── Root health check (required by Render) ────────────────────────────────
 
 app.get('/', (req, res) => {
@@ -427,6 +443,7 @@ app.get('/', (req, res) => {
     name: 'Knowtis WhatsApp Connector',
     status: connectionState,
     endpoints: {
+      health: 'GET  /health',
       status: 'GET  /status',
       generateQr: 'POST /generate-qr',
       disconnect: 'POST /disconnect',
@@ -437,14 +454,41 @@ app.get('/', (req, res) => {
   });
 });
 
-// ─── Start HTTP Server Only (No Auto-Connect) ──────────────────────────────
+// ─── Start HTTP Server ─────────────────────────────────────────────────────
+// Bind the port FIRST and SYNCHRONOUSLY so Render's health probe (/health)
+// can succeed immediately, then kick off the WhatsApp socket in the
+// background. Any failure in Baileys init must never take down HTTP.
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`WhatsApp Connector listening on port ${PORT}`);
+  console.log(`  GET  /health       — Render liveness probe`);
   console.log(`  GET  /status       — Check connection status`);
   console.log(`  POST /generate-qr  — Manually trigger QR code (when ready)`);
   console.log(`  POST /disconnect   — Disconnect the bot`);
   console.log(`  POST /reconnect    — Reconnect the bot`);
   console.log(`  POST /join         — Join a WhatsApp group`);
   console.log(`  GET  /groups       — List all joined groups`);
+
+  // Start the WhatsApp connection in the background. Failures are logged and
+  // swallowed on purpose so the HTTP server (and Render health check) stay up.
+  setImmediate(() => {
+    try {
+      console.log('Initializing WhatsApp socket...');
+      createSocket();
+    } catch (err) {
+      console.error('Initial WhatsApp socket creation failed:', err && err.message);
+    }
+  });
+});
+
+// ─── Crash isolation ───────────────────────────────────────────────────────
+// Baileys occasionally emits uncaught errors during reconnect storms. Without
+// these handlers the whole process dies, taking the Render health check with
+// it and guaranteeing a deploy timeout. We log and keep the HTTP server alive.
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception (surviving):', err && err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection (surviving):', reason && (reason.message || reason));
 });
