@@ -1,136 +1,16 @@
-# Render.com Blueprint Configuration for Knowtis
-# This file defines all services that Render will deploy from this repository.
-# 
-# Setup Instructions:
-# 1. Create a Render account at https://render.com
-# 2. Click "New Blueprint Instance" and connect this repository
-# 3. Render will automatically provision all services defined below
-# 4. Set required environment variables in Render Dashboard after deployment
-
-databases:
-  # ══════════════════════════════════════════════════════════════════════════════
-  # PostgreSQL Database (Free Tier - expires after 90 days)
-  # ══════════════════════════════════════════════════════════════════════════════
-  - name: knowtis-postgres
+services:
+  - type: web
+    name: knowtis-whatsapp-connector
+    repo: https://github.com/Damilare10/Knowtis.git
     plan: free
     region: oregon
-    # Note: pgvector extension needs to be enabled manually after creation
-    # Connect via psql and run: CREATE EXTENSION IF NOT EXISTS vector;
-
-services:
-  # ══════════════════════════════════════════════════════════════════════════════
-  # FastAPI Backend (Free Tier - spins down after 15 min inactivity)
-  # ══════════════════════════════════════════════════════════════════════════════
-  - type: web
-    name: knowtis-backend
-    runtime: docker
-    plan: free
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
-    healthCheckPath: /health
+    buildCommand: cd whatsapp_connector && npm install
+    startCommand: cd whatsapp_connector && node server.js
+    env: node
+    healthCheckPath: /
+    autoDeploy: true
     envVars:
-      - key: PORT
-        value: 8000
-      - key: DATABASE_URL
-        fromDatabase:
-          name: knowtis-postgres
-          property: connectionString
-      # Use native Render Key Value (Redis/Valkey) service
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: knowtis-redis
-          property: connectionString
-      - key: CELERY_BROKER_URL
-        fromService:
-          type: keyvalue
-          name: knowtis-redis
-          property: connectionString
-      - key: CELERY_RESULT_BACKEND
-        fromService:
-          type: keyvalue
-          name: knowtis-redis
-          property: connectionString
-      - key: JWT_SECRET_KEY
-        generateValue: true
-      - key: REFRESH_TOKEN_SECRET
-        generateValue: true
-      - key: JWT_ALGORITHM
-        value: HS256
-      - key: ACCESS_TOKEN_EXPIRE_MINUTES
-        value: 60
-      - key: REFRESH_TOKEN_EXPIRE_DAYS
-        value: 30
-      - key: BACKEND_URL
-        value: https://knowtis-backend.onrender.com
-      - key: FRONTEND_URL
-        value: https://knowtis-frontend.vercel.app
-      - key: SIMILARITY_THRESHOLD
-        value: 0.75
-      - key: DEBUG
-        value: false
-      - key: LOG_LEVEL
-        value: INFO
-      - key: LOG_FORMAT
-        value: json
-      - key: CELERY_TASK_ALWAYS_EAGER
-        value: false
-      - key: SCHEDULER_ENABLED
-        value: false
-      - key: SEMANTIC_PREWARM_ENABLED
-        value: false
-      - key: SETFIT_CLASSIFIER_ENABLED
-        value: false
-      - key: RATE_LIMIT_DEFAULT
-        value: 100/minute
-      - key: RATE_LIMIT_AUTH
-        value: 10/minute
-      - key: RATE_LIMIT_OCR_FREE
-        value: 10/hour
-      - key: RATE_LIMIT_OCR_PREMIUM
-        value: 50/hour
-      - key: WHATSAPP_CONNECTOR_WEBHOOK_SECRET
-        fromService:
-          type: web
-          name: knowtis-whatsapp
-          envVarKey: WEBHOOK_SECRET
-
-
-
-  # ══════════════════════════════════════════════════════════════════════════════
-  # WhatsApp Connector (Node.js - Free Tier)
-  # Note: No persistent disk on free tier - auth resets on restart
-  # ══════════════════════════════════════════════════════════════════════════════
-  - type: web
-    name: knowtis-whatsapp
-    runtime: node
-    plan: free
-    buildCommand: npm install
-    startCommand: node server.js
-    rootDir: ./whatsapp_connector
-    healthCheckPath: /status
-    envVars:
-      - key: PORT
-        value: 3001
-      - key: FASTAPI_WEBHOOK_URL
-        value: https://knowtis-backend.onrender.com/api/v1/whatsapp/webhook
-      - key: WEBHOOK_SECRET
-        sync: false
       - key: NODE_ENV
         value: production
-    # Disk is optional - Render Free Tier does not support persistent disks.
-    # To persist WhatsApp auth across restarts, upgrade this service to "starter"
-    # plan and uncomment the disk configuration below:
-    # disk:
-    #   name: whatsapp-auth
-    #   mountPath: /opt/render/project/src/whatsapp_connector/auth_info_baileys
-    #   sizeGB: 1
-
-  # ══════════════════════════════════════════════════════════════════════════════
-  # Redis / Valkey (Free Tier - 25MB storage)
-  # ══════════════════════════════════════════════════════════════════════════════
-  - type: keyvalue
-    name: knowtis-redis
-    plan: free
-    region: oregon
-    ipAllowList: []
+      - key: PORT
+        value: 3001

@@ -418,6 +418,23 @@ app.get('/groups', requireConnectorAuth, async (req, res) => {
   }
 });
 
+// ─── Root health check (required by Render) ────────────────────────────────
+
+app.get('/', (req, res) => {
+  res.json({
+    name: 'Knowtis WhatsApp Connector',
+    status: connectionState,
+    endpoints: {
+      status: 'GET  /status',
+      generateQr: 'POST /generate-qr',
+      disconnect: 'POST /disconnect',
+      reconnect: 'POST /reconnect',
+      join: 'POST /join',
+      groups: 'GET  /groups',
+    },
+  });
+});
+
 // ─── Start HTTP Server Only (No Auto-Connect) ──────────────────────────────
 
 app.listen(PORT, '0.0.0.0', () => {
