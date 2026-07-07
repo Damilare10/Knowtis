@@ -420,7 +420,7 @@ app.get('/groups', requireConnectorAuth, async (req, res) => {
 
 // ─── Start HTTP Server Only (No Auto-Connect) ──────────────────────────────
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`WhatsApp Connector listening on port ${PORT}`);
   console.log(`  GET  /status       — Check connection status`);
   console.log(`  POST /generate-qr  — Manually trigger QR code (when ready)`);
