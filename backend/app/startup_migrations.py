@@ -17,19 +17,32 @@ def run_startup_migrations(engine: Engine) -> None:
     Call this from the lifespan startup BEFORE any request-handling code
     queries the affected tables.
     """
+    required_user_columns = (
+        "role",
+        "whatsapp_number",
+        "fcm_token",
+        "ai_tokens_received",
+    )
+
     with engine.connect() as conn:
         result = conn.execute(
             text(
-                "SELECT EXISTS ("
-                "  SELECT FROM information_schema.columns "
-                "  WHERE table_name = 'users' AND column_name = 'role'"
-                ")"
-            )
+                "SELECT column_name "
+                "FROM information_schema.columns "
+                "WHERE table_name = 'users' "
+                "AND column_name = ANY(:column_names)"
+            ),
+            {"column_names": list(required_user_columns)},
         )
-        needs_migration = not result.scalar_one()
+        existing_columns = {row.column_name for row in result}
+        missing_columns = set(required_user_columns) - existing_columns
+        needs_migration = bool(missing_columns)
 
         if needs_migration:
-            logger.info("Running startup migration: adding missing users columns")
+            logger.info(
+                "Running startup migration: adding missing users columns: %s",
+                ", ".join(sorted(missing_columns)),
+            )
             conn.execute(text(_MIGRATION_SQL))
 
         conn.commit()
