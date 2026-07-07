@@ -90,31 +90,51 @@ const extractContextInfo = (msg) => {
 
 // ─── WhatsApp Socket Creation ──────────────────────────────────────────────
 
-const createSocket = () => {
-  const { state, saveCreds } = useMultiFileAuthState(AUTH_DIR);
-  
-  sock = makeWASocket({
-    auth: state,
-    logger,
-    browser: ['Knowtis Bot', 'Chrome', '1.0.0'],
-    // Reduce connection timeout to speed up deploys
-    connectTimeoutMs: 20000,
-    defaultQueryTimeoutMs: 20000,
-    // Limit pre-key count to save memory
-    generateHighQualityKey: false,
-    // Reduce socket timeout for faster deploys
-    syncTotalHistoryMessages: false,
-  });
+const createSocket = async () => {
+  let state, saveCreds;
+  try {
+    ({ state, saveCreds } = await useMultiFileAuthState(AUTH_DIR));
+    if (!state || typeof saveCreds !== 'function') {
+      throw new Error('useMultiFileAuthState returned invalid state');
+    }
+  } catch (err) {
+    console.error('Failed to init auth state:', err && err.message);
+    connectionState = 'DISCONNECTED';
+    return;
+  }
+
+  let newSock;
+  try {
+    newSock = makeWASocket({
+      auth: state,
+      logger,
+      browser: ['Knowtis Bot', 'Chrome', '1.0.0'],
+      // Reduce connection timeout to speed up deploys
+      connectTimeoutMs: 20000,
+      defaultQueryTimeoutMs: 20000,
+      // Limit pre-key count to save memory
+      generateHighQualityKey: false,
+      // Reduce socket timeout for faster deploys
+      syncTotalHistoryMessages: false,
+    });
+  } catch (err) {
+    console.error('makeWASocket failed:', err && err.message);
+    connectionState = 'DISCONNECTED';
+    return;
+  }
+
+  sock = newSock;
+  console.log('WhatsApp socket created. Waiting for QR / connection...');
 
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
-    
+
     if (qr) {
       latestQr = qr;
       connectionState = 'AWAITING_SCAN';
-      console.log('QR code received — visit /generate-qr to get the image');
+      console.log('QR code received — click “Generate / Show QR” on /status');
     }
 
     if (connection === 'connecting') {
@@ -138,10 +158,10 @@ const createSocket = () => {
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       console.log(`WhatsApp connection CLOSED (code=${statusCode}). Reconnecting? ${shouldReconnect}`);
       await sendWebhook('connection_status', { status: 'DISCONNECTED' });
-      
+
       if (shouldReconnect) {
         await new Promise(resolve => setTimeout(resolve, 3000));
-        createSocket();
+        createSocket().catch(err => console.error('Reconnect createSocket failed:', err && err.message));
       }
     }
   });
@@ -380,7 +400,7 @@ app.post('/generate-qr', requireConnectorAuth, async (req, res) => {
     console.log('Manually triggering QR code generation...');
     sock.end();
     await new Promise(r => setTimeout(r, 2000));
-    createSocket();
+    await createSocket().catch(err => console.error('QR-trigger createSocket failed:', err && err.message));
     
     // Wait up to 30 seconds for the QR to arrive
     const startTime = Date.now();
@@ -426,7 +446,7 @@ app.post('/reconnect', requireConnectorAuth, async (req, res) => {
   try {
     sock.end();
     await new Promise(r => setTimeout(r, 2000));
-    createSocket();
+    await createSocket().catch(err => console.error('Reconnect createSocket failed:', err && err.message));
     return res.json({ success: true, message: 'Reconnecting...' });
   } catch (err) {
     console.error('Reconnect failed:', err);
@@ -543,12 +563,8 @@ app.listen(PORT, '0.0.0.0', () => {
   // Start the WhatsApp connection in the background. Failures are logged and
   // swallowed on purpose so the HTTP server (and Render health check) stay up.
   setImmediate(() => {
-    try {
-      console.log('Initializing WhatsApp socket...');
-      createSocket();
-    } catch (err) {
-      console.error('Initial WhatsApp socket creation failed:', err && err.message);
-    }
+    console.log('Initializing WhatsApp socket...');
+    createSocket().catch(err => console.error('Initial WhatsApp socket creation failed:', err && err.message));
   });
 });
 
