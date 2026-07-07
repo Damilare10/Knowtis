@@ -202,6 +202,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const response = await authApi.login(credentials);
       const { access_token, user } = response.data;
       localStorage.setItem('knowtis_token', access_token);
+      localStorage.setItem('knowtis_onboarded', 'true');
       set({
         token: access_token,
         user: normalizeUser(user as Record<string, unknown>),
