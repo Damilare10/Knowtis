@@ -81,9 +81,17 @@ FASTAPI_WEBHOOK_URL=https://knowtis-backend.onrender.com/api/v1/whatsapp/webhook
 ### Step 4: Access WhatsApp Connector
 
 1. Find your WhatsApp service URL: `https://knowtis-whatsapp.onrender.com`
-2. Open: `https://knowtis-whatsapp.onrender.com/status`
-3. Scan the QR code with WhatsApp to authenticate
-4. The auth state is saved to persistent disk (survives restarts)
+2. Open the status page (append your connector secret as a query param:
+   `https://knowtis-whatsapp.onrender.com/status?secret=CONNECTOR_API_SECRET`
+3. Click the **“Generate / Show QR”** button on the page — it triggers the QR
+   request in-page and renders the QR image. Wait up to ~30s.
+4. Scan the QR code with WhatsApp → Linked Devices → Link a Device to authenticate
+5. The auth state is saved to persistent disk (survives restarts)
+
+> Note: `/status`, `/generate-qr`, `/disconnect` etc. all require the
+> `CONNECTOR_API_SECRET` (via `?secret=` query or `X-Connector-Secret` header).
+> A bare GET of `/generate-qr` returns "Cannot GET" because it is a POST endpoint
+> — use the button on the `/status` page instead.
 
 ### Step 5: Verify Deployment
 
@@ -94,9 +102,14 @@ Check each service status:
 curl https://knowtis-backend.onrender.com/health
 ```
 
-**WhatsApp Connector Status**
+**WhatsApp Connector Status** (requires secret)
 ```bash
-curl https://knowtis-whatsapp.onrender.com/status
+curl "https://knowtis-whatsapp.onrender.com/status?secret=CONNECTOR_API_SECRET"
+```
+
+**WhatsApp Connector Health** (open liveness probe)
+```bash
+curl https://knowtis-whatsapp.onrender.com/health
 ```
 
 **API Documentation**
@@ -114,7 +127,7 @@ Use a cron job service like **Cron-Job.org** or **UptimeRobot** to ping your ser
 
 ```
 GET https://knowtis-backend.onrender.com/health
-GET https://knowtis-whatsapp.onrender.com/status
+GET https://knowtis-whatsapp.onrender.com/health
 ```
 
 ⚠️ **Note**: This keeps the service running but uses your free tier hours faster.

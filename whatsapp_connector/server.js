@@ -210,28 +210,31 @@ const createSocket = () => {
 
 app.get('/status', requireConnectorAuth, (req, res) => {
   const accept = req.headers.accept || '';
+  const secret = (req.query && req.query.secret) || '';
 
-  if (accept.includes('text/html') || accept.includes('*/*')) {
+  const wantsHtml = accept.includes('text/html') || accept.includes('application/xhtml+xml');
+  if (wantsHtml) {
     const statusColor = connectionState === 'CONNECTED' ? '#22c55e' : connectionState === 'CONNECTING' ? '#f59e0b' : connectionState === 'AWAITING_SCAN' ? '#3b82f6' : '#ef4444';
+    const canGenerate = connectionState === 'AWAITING_SCAN' || connectionState === 'DISCONNECTED' || connectionState === 'CONNECTING';
     const qrSection = connectionState === 'AWAITING_SCAN' ? `
       <div class="qr-section">
         <h2>📱 QR Code Pending</h2>
-        <p class="hint">Visit <code style="background:#334155;padding:2px 6px;border-radius:4px;">/generate-qr</code> to get the QR image when ready.</p>
+        <p class="hint">A QR code is ready. Click “Generate / Show QR” to display it, then scan with WhatsApp → Linked Devices → Link a Device.</p>
       </div>
     ` : connectionState === 'CONNECTED' ? `
       <div class="qr-section">
         <h2>✅ Connected</h2>
-        <p class="hint">Bot is running. You can safely disconnect when needed.</p>
+        <p class="hint">Bot is running. Use Disconnect to release the session if you need a new QR code.</p>
       </div>
     ` : connectionState === 'CONNECTING' ? `
       <div class="qr-section">
         <h2>⏳ Connecting...</h2>
-        <p class="hint">Establishing connection to WhatsApp.</p>
+        <p class="hint">Establishing connection to WhatsApp. If no QR appears, click “Generate / Show QR”.</p>
       </div>
     ` : `
       <div class="qr-section">
         <h2>❌ Disconnected</h2>
-        <p class="hint">No active session. Visit <code style="background:#334155;padding:2px 6px;border-radius:4px;">/generate-qr</code> to start.</p>
+        <p class="hint">No active session. Click “Generate / Show QR” to start a new one.</p>
       </div>
     `;
 
@@ -266,6 +269,21 @@ app.get('/status', requireConnectorAuth, (req, res) => {
     .expiry { font-size: 0.75rem; color: #64748b; margin-top: 12px; }
     .meta { margin-top: 24px; font-size: 0.8rem; color: #64748b; }
     .meta span { color: #94a3b8; }
+    .actions { margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    button.btn {
+      padding: 10px 22px; border-radius: 8px; border: none; cursor: pointer;
+      font-size: 0.875rem; font-weight: 600; transition: background 0.2s, opacity 0.2s;
+      color: #f8fafc; background: #3b82f6;
+    }
+    button.btn:hover { background: #2563eb; }
+    button.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.btn.secondary { background: #334155; }
+    button.btn.secondary:hover { background: #475569; }
+    button.btn.danger { background: #b91c1c; }
+    button.btn.danger:hover { background: #991b1b; }
+    .qr-result { margin-top: 18px; }
+    .qr-result img { max-width: 240px; width: 100%; image-rendering: pixelated; border-radius: 8px; background: #fff; padding: 8px; }
+    #qr-status { font-size: 0.85rem; color: #94a3b8; margin-top: 8px; min-height: 1.2em; }
     .refresh-btn {
       margin-top: 16px; padding: 8px 24px; border-radius: 8px;
       background: #334155; color: #e2e8f0; border: none;
@@ -279,12 +297,65 @@ app.get('/status', requireConnectorAuth, (req, res) => {
     <h1>📞 WhatsApp Connector</h1>
     <div class="status-badge">${connectionState}</div>
     ${qrSection}
+    <div class="qr-result">
+      <div id="qr-status"></div>
+      <img id="qr-img" alt="" style="display:none;" />
+    </div>
+    <div class="actions">
+      <button class="btn" id="qr-btn" ${canGenerate ? '' : 'disabled'}>Generate / Show QR</button>
+      <button class="btn secondary" onclick="location.reload()">↻ Refresh</button>
+      <button class="btn danger" id="disc-btn">Disconnect</button>
+    </div>
     <div class="meta">
       Bot JID: <span>${botJid || '—'}</span><br>
       Server: <span>http://localhost:${PORT}</span>
     </div>
-    <button class="refresh-btn" onclick="location.reload()">↻ Refresh</button>
   </div>
+  <script>
+    const SECRET = ${JSON.stringify(secret)};
+    async function call(method, url) {
+      const res = await fetch(url, {
+        method,
+        headers: { 'X-Connector-Secret': SECRET, 'Content-Type': 'application/json' }
+      });
+      let body = null;
+      try { body = await res.json(); } catch (e) {}
+      return { ok: res.ok, status: res.status, body };
+    }
+    const qrBtn = document.getElementById('qr-btn');
+    const discBtn = document.getElementById('disc-btn');
+    const qrImg = document.getElementById('qr-img');
+    const qrStatus = document.getElementById('qr-status');
+    qrBtn.addEventListener('click', async () => {
+      qrBtn.disabled = true;
+      qrStatus.textContent = 'Requesting QR (can take up to 30s)...';
+      qrImg.style.display = 'none';
+      try {
+        const r = await call('POST', '/generate-qr');
+        if (r.ok && r.body && r.body.qrCode) {
+          qrImg.src = r.body.qrCode.startsWith('data:') ? r.body.qrCode
+            : 'https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=' + encodeURIComponent(r.body.qrCode);
+          qrImg.style.display = 'block';
+          qrStatus.textContent = r.body.message || 'Scan with WhatsApp → Linked Devices → Link a Device.';
+        } else {
+          qrStatus.textContent = (r.body && r.body.detail) || ('Failed (' + r.status + ').') + ' You can refresh & retry.';
+        }
+      } catch (e) {
+        qrStatus.textContent = 'Network error. Retry.';
+      } finally {
+        qrBtn.disabled = false;
+      }
+    });
+    discBtn.addEventListener('click', async () => {
+      if (!confirm('Disconnect the bot?')) return;
+      discBtn.disabled = true;
+      qrStatus.textContent = 'Disconnecting...';
+      const r = await call('POST', '/disconnect');
+      qrStatus.textContent = r.ok ? 'Disconnected.' : ((r.body && r.body.detail) || 'Failed.');
+      discBtn.disabled = false;
+      if (r.ok) setTimeout(() => location.reload(), 1200);
+    });
+  </script>
 </body>
 </html>`);
   } else {
