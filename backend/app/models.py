@@ -68,7 +68,11 @@ class User(Base):
     auth_provider = Column(String(50), default="email")
     auth_provider_id = Column(String(255))
     tier = Column(String(20), default="free")
-    role = Column(SQLEnum(UserRole), default=UserRole.STUDENT, nullable=False)
+    role = Column(
+        SQLEnum(UserRole, values_callable=lambda enum_cls: [role.value for role in enum_cls]),
+        default=UserRole.STUDENT,
+        nullable=False,
+    )
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_login = Column(DateTime)
