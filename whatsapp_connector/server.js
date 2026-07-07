@@ -1,12 +1,22 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
-const pino = require('pino');
-const QRCode = require('qrcode');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
+
+// Minimal logger (replaces pino to save ~5MB)
+const logger = {
+  silent: { child: () => logger.silent },
+  trace: () => {},
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  fatal: () => {},
+  child: () => logger.silent,
+};
 
 const app = express();
 app.use(bodyParser.json());
@@ -16,11 +26,9 @@ const FASTAPI_WEBHOOK_URL = process.env.FASTAPI_WEBHOOK_URL || 'http://localhost
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
 const CONNECTOR_API_SECRET = process.env.CONNECTOR_API_SECRET || WEBHOOK_SECRET;
 
-
 let sock = null;
 let connectionState = 'DISCONNECTED';
 let latestQr = null;
-let latestQrDataUrl = null;
 let botJid = null;
 
 const isLoopback = (req) => {
@@ -33,9 +41,6 @@ const requireConnectorAuth = (req, res, next) => {
     return res.status(503).json({ detail: 'Connector API auth is not configured.' });
   }
 
-  // Allow the local browser to open the status/QR page without a secret so
-  // users can simply click http://localhost:3001/status during local dev.
-  // Read-only status; mutating endpoints (/join, /groups) still require auth.
   if (req.path === '/status' && isLoopback(req)) {
     return next();
   }
@@ -62,7 +67,6 @@ const sendWebhook = async (event, data) => {
       headers: { 'X-Webhook-Secret': WEBHOOK_SECRET }
     });
   } catch (err) {
-    // FastAPI backend may not be running yet — that's ok
     if (process.env.NODE_ENV !== 'production') {
       console.error(`Webhook [${event}] failed:`, err.message);
     }
@@ -84,13 +88,20 @@ const extractContextInfo = (msg) => {
   return null;
 };
 
-const runWhatsApp = async () => {
-  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+// ─── WhatsApp Socket Creation ──────────────────────────────────────────────
+
+const createSocket = () => {
+  const { state, saveCreds } = useMultiFileAuthState(AUTH_DIR);
   
   sock = makeWASocket({
     auth: state,
-    logger: pino({ level: 'warn' }),
-    browser: ['Knowtis Bot', 'Chrome', '1.0.0']
+    logger,
+    browser: ['Knowtis Bot', 'Chrome', '1.0.0'],
+    // Reduce connection timeout to speed up deploys
+    connectTimeoutMs: 20000,
+    defaultQueryTimeoutMs: 20000,
+    // Limit pre-key count to save memory
+    generateHighQualityKey: false,
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -98,29 +109,10 @@ const runWhatsApp = async () => {
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
     
-    // Debug: log full error details
-    if (lastDisconnect?.error) {
-      const err = lastDisconnect.error;
-      console.error('CLOSE ERROR — message:', err.message);
-      console.error('CLOSE ERROR — stack:', err.stack?.split('\n').slice(0, 3).join('\n'));
-      console.error('CLOSE ERROR — statusCode:', err.output?.statusCode);
-      if (err.data) console.error('CLOSE ERROR — data:', JSON.stringify(err.data));
-    }
-    
     if (qr) {
       latestQr = qr;
-      connectionState = 'DISCONNECTED';
-      console.log('QR code received (length: ' + qr.length + ' chars)');
-      // Generate a data URL so the status page can display it as an image
-      QRCode.toDataURL(qr, { width: 400, margin: 2 }, (err, url) => {
-        if (err) {
-          console.error('Failed to generate QR image:', err);
-          latestQrDataUrl = null;
-        } else {
-          latestQrDataUrl = url;
-          console.log('QR image generated — open http://localhost:' + PORT + '/status to scan');
-        }
-      });
+      connectionState = 'AWAITING_SCAN';
+      console.log('QR code received — visit /generate-qr to get the image');
     }
 
     if (connection === 'connecting') {
@@ -131,7 +123,6 @@ const runWhatsApp = async () => {
     if (connection === 'open') {
       connectionState = 'CONNECTED';
       latestQr = null;
-      latestQrDataUrl = null;
       botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
       console.log(`WhatsApp connection is OPEN. Bot JID: ${botJid}`);
       await sendWebhook('connection_status', { status: 'CONNECTED' });
@@ -140,31 +131,28 @@ const runWhatsApp = async () => {
     if (connection === 'close') {
       connectionState = 'DISCONNECTED';
       botJid = null;
+      latestQr = null;
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       console.log(`WhatsApp connection CLOSED (code=${statusCode}). Reconnecting? ${shouldReconnect}`);
       await sendWebhook('connection_status', { status: 'DISCONNECTED' });
       
       if (shouldReconnect) {
-        // Add a small delay before reconnecting to avoid tight loop
         await new Promise(resolve => setTimeout(resolve, 3000));
-        runWhatsApp();
+        createSocket();
       }
     }
   });
 
-  // Listen for incoming messages
   sock.ev.on('messages.upsert', async (m) => {
     if (m.type !== 'notify') return;
 
     for (const msg of m.messages) {
-      // Ignore outgoing messages or messages from system/bot itself
       if (msg.key.fromMe) continue;
 
       const remoteJid = msg.key.remoteJid;
-      if (!remoteJid || !remoteJid.endsWith('@g.us')) continue; // Group messages only
+      if (!remoteJid || !remoteJid.endsWith('@g.us')) continue;
 
-      // Extract message text
       let text = '';
       if (msg.message) {
         if (msg.message.conversation) {
@@ -189,9 +177,8 @@ const runWhatsApp = async () => {
         /@(all|everyone|here)\b/i.test(text);
       const isBotMentioned = Boolean(botJid && mentionedJids.includes(botJid));
 
-      console.log(`Message received in group [${remoteJid}] from [${senderName}]: ${text.slice(0, 50)}...`);
+      console.log(`Message in [${remoteJid}] from ${senderName}: ${text.slice(0, 50)}...`);
 
-      // Forward to FastAPI webhook
       await sendWebhook('message', {
         message_id: msg.key.id,
         sender_jid: senderJid,
@@ -206,7 +193,6 @@ const runWhatsApp = async () => {
     }
   });
 
-  // Listen for participant changes (bot removed detection)
   sock.ev.on('group-participants.update', async (update) => {
     const { id: groupJid, participants, action } = update;
     if (action === 'remove' && botJid && participants.includes(botJid)) {
@@ -214,28 +200,38 @@ const runWhatsApp = async () => {
       await sendWebhook('bot_removed', { group_jid: groupJid });
     }
   });
+
+  return sock;
 };
 
-// Start Express endpoints
+// ─── Express Endpoints ─────────────────────────────────────────────────────
+
 app.get('/status', requireConnectorAuth, (req, res) => {
   const accept = req.headers.accept || '';
 
   if (accept.includes('text/html') || accept.includes('*/*')) {
-    const statusColor = connectionState === 'CONNECTED' ? '#22c55e' : connectionState === 'CONNECTING' ? '#f59e0b' : '#ef4444';
-    const qrSection = latestQrDataUrl ? `
+    const statusColor = connectionState === 'CONNECTED' ? '#22c55e' : connectionState === 'CONNECTING' ? '#f59e0b' : connectionState === 'AWAITING_SCAN' ? '#3b82f6' : '#ef4444';
+    const qrSection = connectionState === 'AWAITING_SCAN' ? `
       <div class="qr-section">
-        <h2>📱 Scan this QR code with WhatsApp</h2>
-        <p class="hint">Open WhatsApp → Linked Devices → Link a Device</p>
-        <img src="${latestQrDataUrl}" alt="QR Code" class="qr-img" />
-        <p class="expiry">This QR code refreshes when a new one is generated</p>
+        <h2>📱 QR Code Pending</h2>
+        <p class="hint">Visit <code style="background:#334155;padding:2px 6px;border-radius:4px;">/generate-qr</code> to get the QR image when ready.</p>
       </div>
-    ` : connectionState === 'DISCONNECTED' ? `
+    ` : connectionState === 'CONNECTED' ? `
       <div class="qr-section">
-        <h2>⏳ Waiting for QR Code...</h2>
-        <p class="hint">The server is connecting to WhatsApp. A QR code will appear here shortly.</p>
-        <div class="spinner"></div>
+        <h2>✅ Connected</h2>
+        <p class="hint">Bot is running. You can safely disconnect when needed.</p>
       </div>
-    ` : '';
+    ` : connectionState === 'CONNECTING' ? `
+      <div class="qr-section">
+        <h2>⏳ Connecting...</h2>
+        <p class="hint">Establishing connection to WhatsApp.</p>
+      </div>
+    ` : `
+      <div class="qr-section">
+        <h2>❌ Disconnected</h2>
+        <p class="hint">No active session. Visit <code style="background:#334155;padding:2px 6px;border-radius:4px;">/generate-qr</code> to start.</p>
+      </div>
+    `;
 
     res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -265,17 +261,7 @@ app.get('/status', requireConnectorAuth, (req, res) => {
     .qr-section { margin-top: 16px; }
     .qr-section h2 { font-size: 1.1rem; margin-bottom: 8px; color: #f1f5f9; }
     .hint { font-size: 0.85rem; color: #94a3b8; margin-bottom: 16px; }
-    .qr-img {
-      background: white; padding: 16px; border-radius: 12px;
-      max-width: 100%; width: 300px; display: block; margin: 0 auto;
-    }
     .expiry { font-size: 0.75rem; color: #64748b; margin-top: 12px; }
-    .spinner {
-      width: 48px; height: 48px; border: 4px solid #334155;
-      border-top-color: #3b82f6; border-radius: 50%;
-      animation: spin 0.8s linear infinite; margin: 20px auto;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
     .meta { margin-top: 24px; font-size: 0.8rem; color: #64748b; }
     .meta span { color: #94a3b8; }
     .refresh-btn {
@@ -303,9 +289,75 @@ app.get('/status', requireConnectorAuth, (req, res) => {
     res.json({
       status: connectionState,
       qrCode: latestQr,
-      qrDataUrl: latestQrDataUrl,
       botJid: botJid
     });
+  }
+});
+
+app.post('/generate-qr', requireConnectorAuth, async (req, res) => {
+  if (!sock) {
+    return res.status(503).json({ detail: 'WhatsApp socket not initialized.' });
+  }
+  if (connectionState === 'CONNECTED') {
+    return res.status(409).json({ detail: 'Already connected. Disconnect first if you need a new QR code.', status: connectionState });
+  }
+
+  try {
+    // Trigger a reconnect which will push a new QR code
+    console.log('Manually triggering QR code generation...');
+    sock.end();
+    await new Promise(r => setTimeout(r, 2000));
+    createSocket();
+    
+    // Wait up to 30 seconds for the QR to arrive
+    const startTime = Date.now();
+    while (Date.now() - startTime < 30000) {
+      if (latestQr) {
+        return res.json({
+          success: true,
+          qrCode: latestQr,
+          message: 'QR code received. Scan it with WhatsApp → Linked Devices → Link a Device.'
+        });
+      }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    return res.status(504).json({ detail: 'Timed out waiting for QR code. Check logs.' });
+  } catch (err) {
+    console.error('QR generation failed:', err);
+    return res.status(500).json({ detail: `QR generation failed: ${err.message}` });
+  }
+});
+
+app.post('/disconnect', requireConnectorAuth, async (req, res) => {
+  if (!sock) {
+    return res.status(503).json({ detail: 'No active connection.' });
+  }
+  try {
+    sock.end();
+    connectionState = 'DISCONNECTED';
+    latestQr = null;
+    console.log('WhatsApp connection closed manually.');
+    await sendWebhook('connection_status', { status: 'DISCONNECTED' });
+    return res.json({ success: true, message: 'Disconnected.' });
+  } catch (err) {
+    console.error('Disconnect failed:', err);
+    return res.status(500).json({ detail: `Disconnect failed: ${err.message}` });
+  }
+});
+
+app.post('/reconnect', requireConnectorAuth, async (req, res) => {
+  if (!sock) {
+    return res.status(503).json({ detail: 'No active connection.' });
+  }
+  try {
+    sock.end();
+    await new Promise(r => setTimeout(r, 2000));
+    createSocket();
+    return res.json({ success: true, message: 'Reconnecting...' });
+  } catch (err) {
+    console.error('Reconnect failed:', err);
+    return res.status(500).json({ detail: `Reconnect failed: ${err.message}` });
   }
 });
 
@@ -319,7 +371,6 @@ app.post('/join', requireConnectorAuth, async (req, res) => {
     return res.status(503).json({ detail: 'WhatsApp bot is not authenticated/connected.' });
   }
 
-  // Parse invite code from link
   let inviteCode = invite_link.trim().split('/').pop();
 
   try {
@@ -327,11 +378,9 @@ app.post('/join', requireConnectorAuth, async (req, res) => {
     const groupJid = await sock.groupAcceptInvite(inviteCode);
     console.log(`Joined group successfully: ${groupJid}`);
 
-    // Wait a brief moment and fetch group metadata
     await new Promise(resolve => setTimeout(resolve, 2000));
     const metadata = await sock.groupMetadata(groupJid);
 
-    // Call webhook to instantly notify FastAPI of success
     await sendWebhook('group_joined', {
       invite_code: inviteCode,
       group_jid: groupJid,
@@ -369,10 +418,14 @@ app.get('/groups', requireConnectorAuth, async (req, res) => {
   }
 });
 
-// Run WhatsApp client
-runWhatsApp();
+// ─── Start HTTP Server Only (No Auto-Connect) ──────────────────────────────
 
-// Start HTTP server
 app.listen(PORT, () => {
   console.log(`WhatsApp Connector listening on port ${PORT}`);
+  console.log(`  GET  /status       — Check connection status`);
+  console.log(`  POST /generate-qr  — Manually trigger QR code (when ready)`);
+  console.log(`  POST /disconnect   — Disconnect the bot`);
+  console.log(`  POST /reconnect    — Reconnect the bot`);
+  console.log(`  POST /join         — Join a WhatsApp group`);
+  console.log(`  GET  /groups       — List all joined groups`);
 });

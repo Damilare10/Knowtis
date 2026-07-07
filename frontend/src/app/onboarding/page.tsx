@@ -534,26 +534,37 @@ export default function OnboardingPage() {
             </div>
           ) : (
             /* Slide 4 stacked authentication CTAs */
-            <div className="flex flex-col gap-2.5 w-full">
+            <div className="flex flex-col gap-3 w-full">
               <Link 
                 href="/register" 
                 className="w-full h-12 bg-[#171717] hover:bg-[#2c2c2c] text-white font-bold rounded-full flex items-center justify-center gap-2 text-sm shadow-[0_8px_16px_rgba(0,0,0,0.1)] active:scale-[0.98] transition-all"
               >
-                Start setup <ArrowRight className="w-4 h-4" />
+                Sign Up <ArrowRight className="w-4 h-4" />
               </Link>
-              <a 
-                href={GOOGLE_OAUTH_URL} 
-                className="w-full h-12 bg-white border border-[#E9E9E6] hover:bg-[#FBFBFA] text-[#171717] font-bold rounded-full flex items-center justify-center gap-2.5 text-sm shadow-sm active:scale-[0.98] transition-all"
+              <Link 
+                href="/login" 
+                className="w-full h-12 bg-white border border-[#E9E9E6] hover:bg-[#FBFBFA] text-[#171717] font-bold rounded-full flex items-center justify-center gap-2 text-sm shadow-sm active:scale-[0.98] transition-all"
               >
-                <GoogleIcon />
-                Continue with Google
-              </a>
-              <button 
-                className="w-full h-12 bg-white border border-[#E9E9E6] hover:bg-[#FBFBFA] text-[#171717] font-bold rounded-full flex items-center justify-center gap-2.5 text-sm shadow-sm active:scale-[0.98] transition-all"
-              >
-                <AppleIcon />
-                Continue with Apple
-              </button>
+                Log In
+              </Link>
+              <div className="flex items-center gap-3 mt-1">
+                <div className="flex-1 h-px bg-[#E9E9E6]" />
+                <span className="text-[11px] font-bold text-[#9A9A94] uppercase tracking-wider">or</span>
+                <div className="flex-1 h-px bg-[#E9E9E6]" />
+              </div>
+              <div className="flex items-center gap-3 mt-1">
+                <a 
+                  href={GOOGLE_OAUTH_URL} 
+                  className="flex-1 flex items-center justify-center h-11 rounded-full bg-white border border-[#E9E9E6] hover:bg-[#FBFBFA] shadow-sm active:scale-[0.98] transition-all"
+                >
+                  <GoogleIcon />
+                </a>
+                <button 
+                  className="flex-1 flex items-center justify-center h-11 rounded-full bg-white border border-[#E9E9E6] hover:bg-[#FBFBFA] shadow-sm active:scale-[0.98] transition-all"
+                >
+                  <AppleIcon />
+                </button>
+              </div>
             </div>
           )}
 
@@ -571,8 +582,7 @@ export default function OnboardingPage() {
               )
             ) : (
               <>
-                Already set up?{' '}
-                <Link href="/login" className="text-[#FF5A36] hover:underline">Log in</Link>
+                {user?.email ? `Welcome back` : `Let's get you started`}
               </>
             )}
           </div>
@@ -1094,25 +1104,41 @@ export default function OnboardingPage() {
                     </p>
                   </div>
 
-                  <div className="flex flex-col sm:flex-row gap-3 justify-center max-w-md mx-auto w-full px-4">
-                    <a 
-                      href={GOOGLE_OAUTH_URL} 
-                      className="flex h-[52px] items-center justify-center gap-2.5 rounded-full border border-[#E9E9E6] bg-white text-[14px] font-bold text-[#171717] shadow-sm hover:bg-[#FBFBFA] transition-all active:scale-[0.98] px-6 w-full"
-                    >
-                      <GoogleIcon />
-                      Continue with Google
-                    </a>
+                  <div className="flex flex-col items-center gap-3 max-w-md mx-auto w-full px-4">
                     <Link 
                       href="/register" 
-                      className="flex h-[52px] items-center justify-center gap-2 rounded-full bg-[#171717] text-[14px] font-bold text-white shadow-[0_12px_24px_rgba(30,30,30,0.15)] hover:bg-[#2e2e2e] transition-all active:scale-[0.98] px-6 w-full"
+                      className="flex h-[52px] items-center justify-center gap-2 rounded-full bg-[#171717] text-[14px] font-bold text-white shadow-[0_12px_24px_rgba(30,30,30,0.15)] hover:bg-[#2e2e2e] transition-all active:scale-[0.98] px-8 w-full"
                     >
-                      Sign Up with Email <ArrowRight className="w-4 h-4" />
+                      Sign Up <ArrowRight className="w-4 h-4" />
                     </Link>
+                    <Link 
+                      href="/login" 
+                      className="flex h-[52px] items-center justify-center gap-2 rounded-full bg-white border border-[#E9E9E6] text-[14px] font-bold text-[#171717] shadow-sm hover:bg-[#FBFBFA] transition-all active:scale-[0.98] px-8 w-full"
+                    >
+                      Log In
+                    </Link>
+                    <div className="flex items-center gap-3 mt-1 w-full">
+                      <div className="flex-1 h-px bg-[#E9E9E6]" />
+                      <span className="text-[11px] font-bold text-[#9A9A94] uppercase tracking-wider">or</span>
+                      <div className="flex-1 h-px bg-[#E9E9E6]" />
+                    </div>
+                    <div className="flex items-center gap-3 w-full">
+                      <a 
+                        href={GOOGLE_OAUTH_URL} 
+                        className="flex items-center justify-center h-11 w-[56px] rounded-full bg-white border border-[#E9E9E6] hover:bg-[#FBFBFA] shadow-sm active:scale-[0.98] transition-all"
+                      >
+                        <GoogleIcon />
+                      </a>
+                      <button 
+                        className="flex items-center justify-center h-11 w-[56px] rounded-full bg-white border border-[#E9E9E6] hover:bg-[#FBFBFA] shadow-sm active:scale-[0.98] transition-all"
+                      >
+                        <AppleIcon />
+                      </button>
+                    </div>
                   </div>
 
-                  <p className="mt-6 text-[11px] text-[#9A9A94] font-bold uppercase tracking-wider">
-                    Already have an account?{' '}
-                    <Link href="/login" className="text-[#FF5A36] hover:underline">Log in here</Link>
+                  <p className="mt-5 text-[11px] text-[#9A9A94] font-bold uppercase tracking-wider">
+                    By signing up, you agree to our Terms &amp; Privacy Policy
                   </p>
                 </div>
               )}

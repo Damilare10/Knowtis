@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Knowtis</string>
+    <string name="title_activity_main">Knowtis</string>
+    <string name="knowtis_widget_description">Knowtis academic updates widget</string>
+    <string name="package_name">com.knowtis.app</string>
+    <string name="custom_url_scheme">com.knowtis.app</string>
+</resources>

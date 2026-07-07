@@ -32,7 +32,7 @@ export default function BottomNav() {
       className="lg:hidden fixed left-0 right-0 z-50 flex justify-center bottom-nav-offset pointer-events-none"
     >
       <div
-        className="pointer-events-auto flex items-end justify-between gap-1 mx-4 px-3 py-2
+        className="pointer-events-auto flex items-end justify-between gap-1 mx-4 px-2.5 py-1.5
           bg-white/70 backdrop-blur-xl
           rounded-[32px]
           border border-white/80
@@ -45,16 +45,16 @@ export default function BottomNav() {
 
           if (isCenter) {
             return (
-              <div key={href} className="relative flex flex-col items-center justify-end px-2 pb-1.5 pt-1 min-w-[58px]">
+              <div key={href} className="relative flex flex-col items-center justify-end px-1.5 pb-1 pt-1 min-w-[52px]">
                 {/* 72px Cutout Background */}
-                <div className="absolute bottom-[20px] left-1/2 -translate-x-1/2 w-[72px] h-[72px] rounded-full bg-[#FBFBFA]/50 backdrop-blur-md" />
+                <div className="absolute bottom-[16px] left-1/2 -translate-x-1/2 w-[64px] h-[64px] rounded-full bg-[#FBFBFA]/50 backdrop-blur-md" />
 
                 {/* 52px Central Action Button */}
                 <motion.div
                   whileHover={{ scale: 1.06 }}
                   whileTap={{ scale: 0.9 }}
                   transition={{ type: 'spring', stiffness: 500, damping: 18 }}
-                  className="absolute bottom-[30px] left-1/2 -translate-x-1/2"
+                  className="absolute bottom-[24px] left-1/2 -translate-x-1/2"
                 >
                   <Link
                     ref={aiButtonRef}
@@ -62,9 +62,9 @@ export default function BottomNav() {
                     onClick={handleAiClick}
                     aria-label={label}
                     scroll={false}
-                    className="flex items-center justify-center w-[52px] h-[52px] rounded-full bg-[#171717] text-white shadow-[0_16px_32px_rgba(23,23,23,0.3),inset_0_1px_1px_rgba(255,255,255,0.2)]"
+                    className="flex items-center justify-center w-[46px] h-[46px] rounded-full bg-[#171717] text-white shadow-[0_16px_32px_rgba(23,23,23,0.3),inset_0_1px_1px_rgba(255,255,255,0.2)]"
                   >
-                    <Icon className="h-6 w-6" weight="fill" />
+                    <Icon className="h-5 w-5" weight="fill" />
                   </Link>
                 </motion.div>
               </div>
@@ -77,7 +77,7 @@ export default function BottomNav() {
               href={href}
               aria-label={label}
               scroll={false}
-              className="relative flex flex-col items-center justify-center gap-1 px-2.5 py-2.5 rounded-[22px] min-w-[58px] transition-colors duration-150"
+              className="relative flex flex-col items-center justify-center gap-0.5 px-2 py-2 rounded-[22px] min-w-[52px] transition-colors duration-150"
             >
               {active && (
                 <motion.div
@@ -87,10 +87,10 @@ export default function BottomNav() {
                 />
               )}
               <Icon
-                className={`relative z-10 h-[24px] w-[24px] transition-colors ${active ? 'text-white' : 'text-[var(--text-3)]'}`}
+                className={`relative z-10 h-5 w-5 transition-colors ${active ? 'text-white' : 'text-[var(--text-3)]'}`}
                 weight={active ? 'fill' : 'duotone'}
               />
-              <span className={`relative z-10 text-[12px] font-extrabold tracking-wide transition-colors ${active ? 'text-white' : 'text-[var(--text-3)]'}`}>
+              <span className={`relative z-10 text-[10px] font-extrabold tracking-wide transition-colors ${active ? 'text-white' : 'text-[var(--text-3)]'}`}>
                 {label}
               </span>
             </Link>
