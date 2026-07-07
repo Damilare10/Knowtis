@@ -18,7 +18,7 @@ export default function LoginPage() {
     e.preventDefault();
     if (!username || !password) return;
     const ok = await login({ username: username.trim().toLowerCase(), password });
-    if (ok) router.replace('/onboarding/research');
+    if (ok) router.replace('/dashboard');
   };
 
   return (

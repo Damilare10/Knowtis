@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowRight, 
@@ -49,15 +50,24 @@ const TOTAL_SLIDES_DESKTOP = 6;
 const TOTAL_SLIDES_MOBILE = 5;
 
 export default function OnboardingPage() {
+  const router = useRouter();
   const isAuthenticated = useAppStore((s) => s.isAuthenticated);
   const user = useAppStore((s) => s.user);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState<boolean | null>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [direction, setDirection] = useState(1); // 1 = forward, -1 = backward
   const [isLinking, setIsLinking] = useState(false);
   const [chatMessages, setChatMessages] = useState<Array<{ id: number; sender: string; text: string; role: string; time: string; isSignal?: boolean }>>([]);
   const [showScan, setShowScan] = useState(false);
   const [scanFinished, setScanFinished] = useState(false);
+
+  useEffect(() => {
+    const token = window.localStorage.getItem('knowtis_token');
+    if (!token) return;
+
+    const onboarded = window.localStorage.getItem('knowtis_onboarded') === 'true';
+    router.replace(onboarded ? '/dashboard' : '/onboarding/research');
+  }, [router]);
 
   // Dynamic Viewport Check
   useEffect(() => {
@@ -71,6 +81,8 @@ export default function OnboardingPage() {
 
   // Sync / Reset slide states when changing screen modes
   useEffect(() => {
+    if (isMobile === null) return;
+
     setCurrentSlide(0);
     setDirection(1);
     setChatMessages([]);
@@ -111,7 +123,7 @@ export default function OnboardingPage() {
 
   // Desktop Ingestion sequence (Slide 1)
   useEffect(() => {
-    if (isMobile || currentSlide !== 1) {
+    if (isMobile !== false || currentSlide !== 1) {
       setChatMessages([]);
       setShowScan(false);
       setScanFinished(false);
@@ -150,7 +162,7 @@ export default function OnboardingPage() {
 
   // Desktop Scan sequence (Slide 1)
   useEffect(() => {
-    if (isMobile || !showScan || currentSlide !== 1) return;
+    if (isMobile !== false || !showScan || currentSlide !== 1) return;
 
     const timer = setTimeout(() => {
       setScanFinished(true);
@@ -208,6 +220,10 @@ export default function OnboardingPage() {
       }
     }),
   };
+
+  if (isMobile === null) {
+    return <main className="min-h-dvh bg-[#FBFBFA]" />;
+  }
 
   // --- MOBILE VIEWS RENDERER ---
   if (isMobile) {
@@ -538,14 +554,6 @@ export default function OnboardingPage() {
                 <AppleIcon />
                 Continue with Apple
               </button>
-              {isAuthenticated && (
-                <Link
-                  href="/dashboard"
-                  className="w-full h-12 bg-[#171717] hover:bg-[#2c2c2c] text-white font-bold rounded-full flex items-center justify-center gap-2 text-sm shadow-[0_8px_16px_rgba(0,0,0,0.1)] active:scale-[0.98] transition-all"
-                >
-                  Go to dashboard <ArrowRight className="w-4 h-4" />
-                </Link>
-              )}
             </div>
           )}
 
@@ -554,13 +562,11 @@ export default function OnboardingPage() {
             {isAuthenticated ? (
               user?.email ? (
                 <>
-                  Signed in as {user.email.split('@')[0]} ·{' '}
-                  <Link href="/dashboard" className="text-[#FF5A36] hover:underline">Go to dashboard</Link>
+                  Signed in as {user.email.split('@')[0]} · Redirecting
                 </>
               ) : (
                 <>
-                  Already signed in ·{' '}
-                  <Link href="/dashboard" className="text-[#FF5A36] hover:underline">Go to dashboard</Link>
+                  Already signed in · Redirecting
                 </>
               )
             ) : (
@@ -600,12 +606,9 @@ export default function OnboardingPage() {
             </button>
           )}
           {isAuthenticated ? (
-            <Link
-              href="/dashboard"
-              className="text-xs font-extrabold px-4 py-2 rounded-full bg-[#171717] text-white border border-[#171717] hover:bg-[#2c2c2c] transition-all"
-            >
-              Dashboard
-            </Link>
+            <span className="text-xs font-extrabold px-4 py-2 rounded-full bg-[#171717] text-white border border-[#171717]">
+              Redirecting
+            </span>
           ) : (
             <Link href="/login" className="text-xs font-extrabold px-4 py-2 rounded-full border border-[#E9E9E6] bg-white hover:bg-[#F4F3EF] transition-all">
               Log in

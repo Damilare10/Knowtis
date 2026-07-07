@@ -19,12 +19,7 @@ export default function RootRouter() {
           ? window.localStorage.getItem("knowtis_onboarded") === "true"
           : false;
 
-      const next =
-        token && onboarded
-          ? "/dashboard"
-          : token
-            ? "/onboarding/setup"
-            : "/onboarding/setup";
+      const next = token ? (onboarded ? "/dashboard" : "/onboarding/research") : "/onboarding";
       router.replace(next);
     };
 

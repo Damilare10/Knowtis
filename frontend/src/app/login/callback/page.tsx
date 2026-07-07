@@ -16,7 +16,7 @@ function CallbackContent() {
       localStorage.setItem('knowtis_token', token);
       checkAuth().then(() => {
         const onboarded = localStorage.getItem('knowtis_onboarded') === 'true';
-        router.push(onboarded ? '/dashboard' : '/onboarding/setup');
+        router.push(onboarded ? '/dashboard' : '/onboarding/research');
       });
     } else {
       router.push('/login');
