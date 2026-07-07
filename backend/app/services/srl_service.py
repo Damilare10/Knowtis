@@ -1,6 +1,12 @@
 """
 Semantic Role Labeling (SRL) Service
+
 Extracts {actor, action, object, time} from natural language student announcements.
+
+NOTE: This module is not yet wired into the event extraction pipeline.
+The SRLService class is intentionally left for future use.
+The _run_async helper is duplicated in tasks.py and will be removed once
+this service is integrated.
 """
 import re
 import json

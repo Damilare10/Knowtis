@@ -210,7 +210,7 @@ class EventExtractionService:
         
         try:
             # Run the async chat call synchronously
-            from app.services.srl_service import _run_async
+            from app.tasks import _run_async
             response_str = _run_async(LLMService.chat(
                 messages=[
                     {"role": "system", "content": system_prompt},

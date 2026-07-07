@@ -124,4 +124,11 @@ export const billingApi = {
   getSubscription: () => apiClient.get('/billing/subscription').then((res) => res.data),
 };
 
+// Onboarding / Research Endpoints
+export const onboardingApi = {
+  getResearch: () => apiClient.get('/onboarding/research').then((res) => res.data),
+  saveResearch: (data: { heard_about: string; primary_use_case: string; skipped: boolean; other_text?: string | null }) =>
+    apiClient.post('/onboarding/research', data).then((res) => res.data),
+};
+
 export default apiClient;

@@ -16,7 +16,6 @@ from app.schemas import (
     UserResponse,
     RefreshRequest,
     UserUpdate,
-    UserUpgrade,
     UsernameCheckResponse,
 )
 from app.services.auth_service import AuthService
@@ -469,15 +468,4 @@ async def delete_profile(
         )
 
 
-@router.put("/upgrade", response_model=UserResponse)
-async def upgrade_user(
-    upgrade_data: UserUpgrade,
-    current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """Disabled legacy mock endpoint; billing webhooks own subscription state."""
-    raise HTTPException(
-        status_code=status.HTTP_410_GONE,
-        detail="Manual subscription upgrades are disabled. Use the billing flow.",
-    )
 
