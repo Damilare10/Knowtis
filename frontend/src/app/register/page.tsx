@@ -78,8 +78,9 @@ export default function RegisterPage() {
           kind: data.available ? 'available' : 'taken',
           suggestion: data.suggestion ?? undefined,
         });
-      } catch {
+      } catch (err) {
         if (seq !== checkSeqRef.current) return;
+        console.error('Username availability check failed:', err);
         // On network error: let the server-side validator handle it on submit.
         setUsernameState({ kind: 'idle' });
       }
@@ -96,7 +97,8 @@ export default function RegisterPage() {
 
   const canSubmit =
     email.length > 0 &&
-    usernameState.kind === 'available' &&
+    username.trim().length >= 3 &&
+    (usernameState.kind === 'available' || usernameState.kind === 'idle') &&
     password.length >= 8 &&
     passwordsMatch &&
     privacyAccepted &&
