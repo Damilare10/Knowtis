@@ -6,6 +6,7 @@ import logging
 import re
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User, UserRole
@@ -180,7 +181,13 @@ async def check_username(
 async def login(request: Request, credentials: UserLogin, db: Session = Depends(get_db)):
     """Log in with username + password, returns access + refresh tokens"""
     try:
-        user = db.query(User).filter(User.username == credentials.username).first()
+        username_or_email = _normalize_username(credentials.username)
+        user = db.query(User).filter(
+            or_(
+                User.username == username_or_email,
+                User.email == username_or_email,
+            )
+        ).first()
         if not user or not AuthService.verify_password(credentials.password, user.hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

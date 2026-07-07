@@ -17,8 +17,8 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password) return;
-    const ok = await login({ username, password });
-    if (ok) router.push('/onboarding/setup');
+    const ok = await login({ username: username.trim().toLowerCase(), password });
+    if (ok) router.replace('/onboarding/research');
   };
 
   return (
