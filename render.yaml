@@ -75,6 +75,12 @@ services:
         value: json
       - key: CELERY_TASK_ALWAYS_EAGER
         value: false
+      - key: SCHEDULER_ENABLED
+        value: false
+      - key: SEMANTIC_PREWARM_ENABLED
+        value: false
+      - key: SETFIT_CLASSIFIER_ENABLED
+        value: false
       - key: RATE_LIMIT_DEFAULT
         value: 100/minute
       - key: RATE_LIMIT_AUTH

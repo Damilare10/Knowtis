@@ -135,7 +135,6 @@ async def register(request: Request, user_data: UserRegister, db: Session = Depe
 
 
 @router.get("/check-username", response_model=UsernameCheckResponse)
-@limiter.limit(settings.rate_limit_auth)
 async def check_username(
     request: Request,
     username: str = Query(
