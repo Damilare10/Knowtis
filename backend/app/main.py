@@ -58,6 +58,10 @@ async def lifespan(app: FastAPI):
         extra={"log_format": settings.log_format, "level": settings.log_level},
     )
 
+    # One-shot startup migrations (add missing columns, etc.)
+    from app.startup_migrations import run_startup_migrations
+    run_startup_migrations(engine)
+
     # Create DB tables
     from app.database import engine, Base
     from app import models  # noqa — ensures all models are registered
