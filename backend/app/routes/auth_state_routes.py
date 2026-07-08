@@ -46,6 +46,9 @@ async def sync_auth_state(
     The connector POSTs the full auth object on every `creds.update` event.
     The secret can be passed via either ``X-Webhook-Secret`` or
     ``X-Connector-Secret`` (they share the same value by default).
+
+    An empty state `{}` is accepted — it clears any previously saved auth
+    (used by the /reset endpoint to wipe credentials).
     """
     header_value = x_webhook_secret or x_connector_secret
     if not _validate_auth_state_secret(header_value):
@@ -54,13 +57,8 @@ async def sync_auth_state(
             detail="Invalid auth state secret.",
         )
 
-    if not state:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Auth state body is required.",
-        )
-
-    auth_state_service.save_auth_state(db, state)
+    # Accept empty dict (reset) or non-empty state
+    auth_state_service.save_auth_state(db, state if state else {})
     return {"status": "ok"}
 
 

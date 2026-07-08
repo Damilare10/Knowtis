@@ -186,10 +186,11 @@ const extractContextInfo = (msg) => {
 // ─── WhatsApp Socket Creation ──────────────────────────────────────────────
 
 const createSocket = async () => {
+  // If localCredState is null, it means auth hasn't been loaded from DB yet.
+  // Initialize with empty creds/keys for a fresh pairing flow.
   if (!localCredState) {
-    console.error('Auth state not loaded — cannot create socket.');
-    connectionState = 'DISCONNECTED';
-    return;
+    console.log('Auth state not yet loaded — initializing fresh session.');
+    localCredState = { creds: {}, keys: {} };
   }
 
   let newSock;
