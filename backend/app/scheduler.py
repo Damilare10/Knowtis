@@ -257,33 +257,33 @@ def _process_pending_joins():
                 WhatsAppGroup.group_jid == group_to_join.group_jid
             ).all()
 
-            # account_reachout_restricted is a WhatsApp anti-spam block.
-            # Back off much harder (hours) to avoid worsening the restriction.
+            # account_reachout_restricted = WhatsApp blocks linked-device API
+            # joins. Stop attempting API joins for this group to avoid flagging
+            # the number. The reconcile pass (runs every 30s above) will detect
+            # a manual join on the primary phone and flip to ACTIVE.
             is_restricted = "account_reachout_restricted" in msg
 
             for g in matching_pending:
                 g.join_attempts = (g.join_attempts or 0) + 1
                 g.last_join_attempt = now
 
-                if g.join_attempts >= MAX_JOIN_ATTEMPTS:
-                    # Exhausted retries — mark inactive so it stops trying.
+                if is_restricted:
+                    # Park the API join indefinitely — rely on reconcile flow.
+                    g.next_join_attempt = now + timedelta(days=365)
+                    logger.info(
+                        f"Join queue: account_reachout_restricted — API joins paused for '{invite_code}'. "
+                        f"Join the group manually on the bot's phone; reconcile will detect it within 30s."
+                    )
+                elif g.join_attempts >= MAX_JOIN_ATTEMPTS:
+                    # Non-restricted failures (bad link, etc.) — give up.
                     g.is_active = False
                     g.next_join_attempt = None
                     logger.error(
                         f"Join queue: group '{invite_code}' marked inactive after {g.join_attempts} failed attempts"
                     )
                 else:
-                    # Exponential backoff: 2^attempts minutes, capped at 60 min.
-                    # For account_reachout_restricted, use hours instead.
-                    base = g.join_attempts
-                    if is_restricted:
-                        delay = min(timedelta(hours=2 ** base), timedelta(hours=8))
-                    else:
-                        delay = min(timedelta(minutes=2 ** base), timedelta(minutes=60))
-                    g.next_join_attempt = now + delay
-                    logger.info(
-                        f"Join queue: backing off group '{invite_code}' for {delay} (next attempt at {g.next_join_attempt.isoformat()})"
-                    )
+                    # Normal failure — retry next cycle (30s).
+                    g.next_join_attempt = None
 
             db.commit()
 
