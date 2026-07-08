@@ -9,6 +9,9 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
+# Max join attempts before a pending group is marked inactive (blocked).
+MAX_JOIN_ATTEMPTS = 5
+
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     HAS_APSCHEDULER = True
@@ -126,6 +129,8 @@ def _process_pending_joins():
     # Worker-side randomized burst protection before touching the queue.
     apply_burst_delay("scheduler.process_pending_joins")
 
+    now = datetime.utcnow()
+
     db = SessionLocal()
     try:
         # Anti-ban: rotate worker sessions that have outlived their interval.
@@ -151,7 +156,7 @@ def _process_pending_joins():
         min_gap = timedelta(minutes=3) + timedelta(seconds=jitter)
 
         if last_joined and last_joined.join_date:
-            elapsed = datetime.utcnow() - last_joined.join_date
+            elapsed = now - last_joined.join_date
             if elapsed < min_gap:
                 logger.info(
                     f"Join queue: waiting to join. Elapsed since last join: {elapsed.total_seconds():.1f}s, "
@@ -159,8 +164,18 @@ def _process_pending_joins():
                 )
                 return
 
-        # Process the oldest pending group join request
-        group_to_join = pending_groups[0]
+        # Pick the oldest eligible group: skip those whose backoff window
+        # hasn't elapsed yet.
+        group_to_join = None
+        for g in pending_groups:
+            if g.next_join_attempt and now < g.next_join_attempt:
+                continue
+            group_to_join = g
+            break
+
+        if group_to_join is None:
+            return
+
         # JID format: pending-{invite_code}@g.us
         invite_code = group_to_join.group_jid.split("@")[0].replace("pending-", "")
         invite_link = f"https://chat.whatsapp.com/{invite_code}"
@@ -169,7 +184,7 @@ def _process_pending_joins():
         session_id = pick_worker_session_id(db, salt=invite_code)
 
         logger.info(
-            f"Join queue: attempting to join group with invite code '{invite_code}' via session '{session_id}'"
+            f"Join queue: attempting to join group with invite code '{invite_code}' via session '{session_id}' (attempt {group_to_join.join_attempts + 1}/{MAX_JOIN_ATTEMPTS})"
         )
         res = WhatsAppService.join_group(invite_link=invite_link, session_id=session_id)
 
@@ -185,13 +200,50 @@ def _process_pending_joins():
                 g.coverage_state = CoverageState.ACTIVE
                 g.join_date = datetime.utcnow()
                 g.last_coverage_update = datetime.utcnow()
+                g.join_attempts = 0
+                g.last_join_attempt = None
+                g.next_join_attempt = None
 
             db.commit()
             logger.info(f"Join queue: successfully joined group JID {res['group_jid']} for {len(matching_pending)} records")
         else:
-            logger.warning(f"Join queue: failed to join group '{invite_code}': {res.get('message')}")
-            # If the join fails due to a bad link or other reasons, we keep it pending so it retries,
-            # but in production we'd want to set a limit or flag invalid links to avoid infinite loops.
+            msg = res.get("message", "")
+            logger.warning(f"Join queue: failed to join group '{invite_code}': {msg}")
+
+            # Update all pending records for this invite code together.
+            matching_pending = db.query(WhatsAppGroup).filter(
+                WhatsAppGroup.group_jid == group_to_join.group_jid
+            ).all()
+
+            # account_reachout_restricted is a WhatsApp anti-spam block.
+            # Back off much harder (hours) to avoid worsening the restriction.
+            is_restricted = "account_reachout_restricted" in msg
+
+            for g in matching_pending:
+                g.join_attempts = (g.join_attempts or 0) + 1
+                g.last_join_attempt = now
+
+                if g.join_attempts >= MAX_JOIN_ATTEMPTS:
+                    # Exhausted retries — mark inactive so it stops trying.
+                    g.is_active = False
+                    g.next_join_attempt = None
+                    logger.error(
+                        f"Join queue: group '{invite_code}' marked inactive after {g.join_attempts} failed attempts"
+                    )
+                else:
+                    # Exponential backoff: 2^attempts minutes, capped at 60 min.
+                    # For account_reachout_restricted, use hours instead.
+                    base = g.join_attempts
+                    if is_restricted:
+                        delay = min(timedelta(hours=2 ** base), timedelta(hours=8))
+                    else:
+                        delay = min(timedelta(minutes=2 ** base), timedelta(minutes=60))
+                    g.next_join_attempt = now + delay
+                    logger.info(
+                        f"Join queue: backing off group '{invite_code}' for {delay} (next attempt at {g.next_join_attempt.isoformat()})"
+                    )
+
+            db.commit()
 
     except Exception as e:
         logger.error(f"Join queue job error: {e}")

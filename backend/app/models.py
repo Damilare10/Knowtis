@@ -113,6 +113,12 @@ class WhatsAppGroup(Base):
     outage_end = Column(DateTime)
     is_active = Column(Boolean, default=True)
     join_date = Column(DateTime, default=datetime.utcnow)
+    # Retry tracking for staggered joins. Prevents the scheduler from
+    # hammering WhatsApp every 30s on a persistent failure (e.g.
+    # account_reachout_restricted) which worsens anti-spam restrictions.
+    join_attempts = Column(Integer, default=0, nullable=False)
+    last_join_attempt = Column(DateTime)
+    next_join_attempt = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
