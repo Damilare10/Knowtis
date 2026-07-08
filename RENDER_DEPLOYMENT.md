@@ -134,40 +134,24 @@ GET https://knowtis-whatsapp.onrender.com/health
 
 ### WhatsApp Authentication Persistence
 
-> [!WARNING]
-> **Why you keep losing the paired session**: Render's web services use an
-> **ephemeral filesystem** by default. `auth_info_baileys/` writes to the app
-> working directory, which is wiped on every deploy and on free-tier sleep/wake.
-> The bot then boots with no creds, re-enters pairing, and emits QR codes
-> forever — even though you already scanned earlier.
+> [!TIP]
+> **Auth state is now stored in PostgreSQL** — no persistent disk needed.
+> The WhatsApp connector (Node.js/Baileys) stores its credentials via the
+> backend's `/api/v1/whatsapp/auth-state` endpoint, which saves them as
+> JSONB in the `whatsapp_auth_state` table. This survives Render free-tier
+> restarts, sleep/wake cycles, and deploys automatically.
 >
-> **Fix: mount a persistent Disk** ($0.25/GB/month for 1 GB — works on the Free
-> compute plan). Render does NOT auto-apply a `disk:` block added to
-> `render.yaml` for an existing service — you must add the disk manually:
-> 1. Render Dashboard → `knowtis-whatsapp` service → **Disks** (left sidebar).
-> 2. **Add Disk**.
-> 3. Mount path: `/opt/render/project/src/whatsapp-auth` (a subdirectory of the
->    Node runtime source path — Render disallows mounting at the bare
->    `/opt/render/project/src` itself, but a subdir is allowed).
-> 4. Size: 1 GB.
-> 5. Save — Render triggers a new deploy.
+> **How it works:**
+> 1. On startup, the connector fetches the auth state from the backend
+> 2. On every `creds.update` event, the connector debounces and POSTs the
+>    updated state to the backend (2-second debounce to avoid hammering)
+> 3. The backend stores the full auth object in the `whatsapp_auth_state`
+>    table (single row, PK=1) as JSONB
+> 4. If the auth state is empty (first-time pair), Baileys generates a QR
+> 5. After scanning, credentials persist forever — no re-scan needed
 >
-> Then set the connector's auth dir to write inside the mount. `render.yaml`
-> wires this up so a fresh blueprint sync will include it:
-> ```yaml
-> envVars:
->   - key: AUTH_DIR
->     value: /opt/render/project/src/whatsapp-auth/auth_info_baileys
-> disk:
->   name: whatsapp-auth
->   mountPath: /opt/render/project/src/whatsapp-auth
->   sizeGB: 1
-> ```
-> Disks persist across **deploys, restarts, and free-tier sleep/wake**.
-
-✅ Once the disk is mounted, authentication survives deploys, restarts, and crashes.
-✅ No need to re-sscan the QR after deploys — Baileys resumes the saved session.
-⚠️ You'll only need to re-scan if you click "Reset Session" or remove the linked device from your phone (WhatsApp → Linked Devices).
+> **Only need to re-scan if:** you click "Reset Session" or remove the
+> linked device from your phone (WhatsApp → Linked Devices).
 
 ### Database Limits
 

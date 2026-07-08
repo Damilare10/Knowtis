@@ -1,9 +1,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const fs = require('fs');
-const path = require('path');
+const { default: makeWASocket, Browsers, DisconnectReason } = require('@whiskeysockets/baileys');
 require('dotenv').config();
 
 // Minimal no-op logger (replaces pino to save ~5MB). Baileys calls
@@ -54,14 +52,107 @@ const requireConnectorAuth = (req, res, next) => {
   next();
 };
 
-// Ensure auth directory exists
-// Auth state directory. On Render this is mounted to a persistent disk
-// (see render.yaml -> disk.mountPath) so the paired WhatsApp session survives
-// deploys and free-tier sleep/wake. Locally falls back to a relative folder.
-const AUTH_DIR = process.env.AUTH_DIR || path.join(__dirname, 'auth_info_baileys');
-if (!fs.existsSync(AUTH_DIR)) {
-  fs.mkdirSync(AUTH_DIR, { recursive: true });
+// ─── DB-Backed Auth State Manager ────────────────────────────────────────────
+// Replaces useMultiFileAuthState so auth survives Render free-tier restarts
+// without needing a persistent disk. The connector stores the full Baileys
+// auth object as JSONB in PostgreSQL via the backend API.
+const BACKEND_URL = process.env.FASTAPI_WEBHOOK_URL || 'http://localhost:8000';
+const BASE_URL = BACKEND_URL.replace(/\/api\/v1\/whatsapp\/?.*$/, '');
+const AUTH_STATE_URL = `${BASE_URL}/api/v1/whatsapp/auth-state`;
+const AUTH_SECRET = process.env.WEBHOOK_SECRET || process.env.CONNECTOR_API_SECRET || '';
+
+let savedAuthState = null;   // In-memory cache of the DB auth object
+let localCredState = null;   // Baileys mutable credential state (derived from saved state or fresh)
+let persistAuthState = null; // The saveCreds callback registered with Baileys
+
+/**
+ * Load auth state from PostgreSQL via the backend API.
+ * Returns { state: {...}, saveCreds: fn } compatible with makeWASocket.
+ */
+async function loadAuthFromDB() {
+  try {
+    console.log('Loading WhatsApp auth state from database...');
+    const res = await axios.get(AUTH_STATE_URL, {
+      headers: { 'X-Webhook-Secret': AUTH_SECRET },
+      timeout: 10000,
+    });
+    const authObj = res.data.state || {};
+    if (authObj && Object.keys(authObj).length > 0) {
+      console.log(`Auth state loaded from DB (${Object.keys(authObj).length} keys)`);
+      savedAuthState = authObj;
+    } else {
+      console.log('No auth state in database — will create fresh session.');
+      savedAuthState = {};
+    }
+  } catch (err) {
+    console.log(`Could not load auth state from DB (${err.message || err.code}). Starting fresh.`);
+    savedAuthState = {};
+  }
+
+  // Create a Baileys-compatible state + saveCreds pair from the DB object.
+  // Baileys expects:
+  //   state = { creds: {...}, keys: {...} }
+  //   saveCreds = () => { persist current state.creds and state.keys }
+  localCredState = {
+    creds: savedAuthState.creds || {},
+    keys: savedAuthState.keys || {},
+  };
+
+  const saveCreds = async () => {
+    if (!localCredState) return;
+    const toSave = {
+      creds: localCredState.creds,
+      keys: JSON.parse(JSON.stringify(localCredState.keys)), // deep copy
+    };
+    savedAuthState = toSave;
+
+    // Throttle DB writes to avoid hammering the API on every single update.
+    // Baileys may call saveCreds many times per second; we debounce.
+    if (localCredState._saveTimeout) clearTimeout(localCredState._saveTimeout);
+    localCredState._saveTimeout = setTimeout(async () => {
+      try {
+        await axios.post(AUTH_STATE_URL, toSave, {
+          headers: {
+            'X-Webhook-Secret': AUTH_SECRET,
+            'Content-Type': 'application/json',
+          },
+          timeout: 10000,
+        });
+        console.log('Auth state persisted to database');
+      } catch (err) {
+        console.error(`Failed to persist auth state to DB: ${err.message || err.code}`);
+      }
+    }, 2000); // 2-second debounce
+  };
+
+  persistAuthState = saveCreds;
+
+  return { state: localCredState, saveCreds };
 }
+
+// ─── Start HTTP Server (before WhatsApp init so Render health checks pass) ───
+app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`WhatsApp Connector listening on port ${PORT}`);
+  console.log(`  GET  /health       — Render liveness probe`);
+  console.log(`  GET  /status       — Check connection status`);
+  console.log(`  POST /generate-qr  — Manually trigger QR code (when ready)`);
+  console.log(`  POST /disconnect   — Disconnect the bot`);
+  console.log(`  POST /reconnect    — Reconnect the bot`);
+  console.log(`  POST /reset        — Wipe auth state & start fresh (emits a new QR)`);
+  console.log(`  POST /join         — Join a WhatsApp group`);
+  console.log(`  GET  /groups       — List all joined groups`);
+
+  // Load auth from DB and start socket in background
+  setImmediate(async () => {
+    try {
+      await loadAuthFromDB();
+    } catch (err) {
+      console.error('Failed to load auth from DB:', err && err.message);
+    }
+    console.log('Initializing WhatsApp socket...');
+    createSocket().catch(err => console.error('Initial WhatsApp socket creation failed:', err && err.message));
+  });
+});
 
 const sendWebhook = async (event, data) => {
   try {
@@ -95,14 +186,8 @@ const extractContextInfo = (msg) => {
 // ─── WhatsApp Socket Creation ──────────────────────────────────────────────
 
 const createSocket = async () => {
-  let state, saveCreds;
-  try {
-    ({ state, saveCreds } = await useMultiFileAuthState(AUTH_DIR));
-    if (!state || typeof saveCreds !== 'function') {
-      throw new Error('useMultiFileAuthState returned invalid state');
-    }
-  } catch (err) {
-    console.error('Failed to init auth state:', err && err.message);
+  if (!localCredState) {
+    console.error('Auth state not loaded — cannot create socket.');
     connectionState = 'DISCONNECTED';
     return;
   }
@@ -110,15 +195,11 @@ const createSocket = async () => {
   let newSock;
   try {
     newSock = makeWASocket({
-      auth: state,
-      logger,
-      browser: ['Knowtis Bot', 'Chrome', '1.0.0'],
-      // Reduce connection timeout to speed up deploys
+      auth: localCredState,
+      browser: Browsers.ubuntu('Desktop'),
       connectTimeoutMs: 20000,
       defaultQueryTimeoutMs: 20000,
-      // Limit pre-key count to save memory
       generateHighQualityKey: false,
-      // Reduce socket timeout for faster deploys
       syncTotalHistoryMessages: false,
     });
   } catch (err) {
@@ -130,7 +211,7 @@ const createSocket = async () => {
   sock = newSock;
   console.log('WhatsApp socket created. Waiting for QR / connection...');
 
-  sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('creds.update', persistAuthState);
 
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
@@ -543,21 +624,30 @@ app.post('/reconnect', requireConnectorAuth, async (req, res) => {
 // into first-time pairing mode and emits a QR.
 app.post('/reset', requireConnectorAuth, async (req, res) => {
   try {
-    console.log('Reset requested — wiping auth_info_baileys/ ...');
+    console.log('Reset requested — wiping auth state...');
     if (sock) {
       try { sock.end(); } catch (e) {}
       sock = null;
     }
-    // Delete every file inside AUTH_DIR (keep the folder itself)
-    for (const entry of fs.readdirSync(AUTH_DIR)) {
-      try { fs.rmSync(path.join(AUTH_DIR, entry), { recursive: true, force: true }); }
-      catch (e) { console.error(`Could not delete ${entry}:`, e.message); }
-    }
+    // Clear in-memory state
+    savedAuthState = null;
+    localCredState = null;
+    persistAuthState = null;
     connectionState = 'DISCONNECTED';
     latestQr = null;
     botJid = null;
     connectionFailCount = 0;
     lastProgressAt = null;
+
+    // Clear persisted state in the database
+    try {
+      await axios.post(AUTH_STATE_URL, {}, {
+        headers: { 'X-Webhook-Secret': AUTH_SECRET },
+      });
+    } catch (err) {
+      console.error('Failed to clear auth state from DB:', err.message);
+    }
+
     console.log('Auth state wiped. Starting fresh socket for QR...');
 
     // Kick a fresh connect — don't await the QR here, the client polls /status.
@@ -684,30 +774,6 @@ app.get('/', (req, res) => {
       join: 'POST /join',
       groups: 'GET  /groups',
     },
-  });
-});
-
-// ─── Start HTTP Server ─────────────────────────────────────────────────────
-// Bind the port FIRST and SYNCHRONOUSLY so Render's health probe (/health)
-// can succeed immediately, then kick off the WhatsApp socket in the
-// background. Any failure in Baileys init must never take down HTTP.
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`WhatsApp Connector listening on port ${PORT}`);
-  console.log(`  GET  /health       — Render liveness probe`);
-  console.log(`  GET  /status       — Check connection status`);
-  console.log(`  POST /generate-qr  — Manually trigger QR code (when ready)`);
-  console.log(`  POST /disconnect   — Disconnect the bot`);
-  console.log(`  POST /reconnect    — Reconnect the bot`);
-  console.log(`  POST /reset        — Wipe auth state & start fresh (emits a new QR)`);
-  console.log(`  POST /join         — Join a WhatsApp group`);
-  console.log(`  GET  /groups       — List all joined groups`);
-
-  // Start the WhatsApp connection in the background. Failures are logged and
-  // swallowed on purpose so the HTTP server (and Render health check) stay up.
-  setImmediate(() => {
-    console.log('Initializing WhatsApp socket...');
-    createSocket().catch(err => console.error('Initial WhatsApp socket creation failed:', err && err.message));
   });
 });
 

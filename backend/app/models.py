@@ -478,3 +478,20 @@ class ResearchOnboarding(Base):
     # Relationships
     user = relationship("User")
 
+
+class WhatsAppAuthState(Base):
+    """Serialized Baileys multi-file auth state.
+
+    The WhatsApp connector (Node.js/Baileys) stores credentials as a JSON object
+    containing signed identity keys, pre-keys, session data, etc. This single
+    row (PK=1) holds the entire auth object as JSONB so it survives Render
+    free-tier restarts and sleep/wake cycles.
+    """
+    __tablename__ = "whatsapp_auth_state"
+
+    id = Column(Integer, primary_key=True, default=1, server_default="1")
+    state = Column(JSONB, nullable=True)
+    last_updated = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+

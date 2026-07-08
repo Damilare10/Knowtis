@@ -19,6 +19,7 @@ from app.routes import auth_routes
 from app.routes import events_routes
 from app.routes import reminders_routes
 from app.routes import whatsapp_routes
+from app.routes import auth_state_routes
 from app.routes import notifications_routes
 from app.routes import calendar_routes
 from app.routes import billing_routes
@@ -242,6 +243,7 @@ app.include_router(auth_routes.router)
 app.include_router(events_routes.router)
 app.include_router(reminders_routes.router)
 app.include_router(whatsapp_routes.router)
+app.include_router(auth_state_routes.router)
 app.include_router(notifications_routes.router)
 app.include_router(calendar_routes.router)
 app.include_router(billing_routes.router)
