@@ -6,17 +6,16 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
-// Minimal logger (replaces pino to save ~5MB)
-const logger = {
-  silent: { child: () => logger.silent },
-  trace: () => {},
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  fatal: () => {},
-  child: () => logger.silent,
-};
+// Minimal no-op logger (replaces pino to save ~5MB). Baileys calls
+// logger.child(...).<level>(...) heavily, so every level must exist on BOTH
+// the root and any returned child — otherwise "logger.trace is not a function"
+// crashes inside Baileys and kills the socket (closed code=undefined).
+const noopLogMethod = () => {};
+const noopLogger = {};
+['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'child'].forEach((m) => {
+  noopLogger[m] = m === 'child' ? () => noopLogger : noopLogMethod;
+});
+const logger = { ...noopLogger, child: () => noopLogger };
 
 const app = express();
 app.use(bodyParser.json());
@@ -184,10 +183,8 @@ const createSocket = async () => {
       console.log(`Reconnecting in ${backoffMs}ms...`);
       await sendWebhook('connection_status', { status: 'DISCONNECTED' });
 
-      if (shouldReconnect) {
-        await new Promise(resolve => setTimeout(resolve, backoffMs));
-        createSocket().catch(err => console.error('Reconnect createSocket failed:', err && err.message));
-      }
+      await new Promise(resolve => setTimeout(resolve, backoffMs));
+      createSocket().catch(err => console.error('Reconnect createSocket failed:', err && err.message));
     }
   });
 
