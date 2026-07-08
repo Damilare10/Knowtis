@@ -55,9 +55,12 @@ const requireConnectorAuth = (req, res, next) => {
 };
 
 // Ensure auth directory exists
-const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
+// Auth state directory. On Render this is mounted to a persistent disk
+// (see render.yaml -> disk.mountPath) so the paired WhatsApp session survives
+// deploys and free-tier sleep/wake. Locally falls back to a relative folder.
+const AUTH_DIR = process.env.AUTH_DIR || path.join(__dirname, 'auth_info_baileys');
 if (!fs.existsSync(AUTH_DIR)) {
-  fs.mkdirSync(AUTH_DIR);
+  fs.mkdirSync(AUTH_DIR, { recursive: true });
 }
 
 const sendWebhook = async (event, data) => {

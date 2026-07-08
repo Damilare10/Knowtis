@@ -14,3 +14,9 @@ services:
         sync: false
       - key: WEBHOOK_SECRET
         sync: false
+      - key: AUTH_DIR
+        value: /opt/data/whatsapp-auth/auth_info_baileys
+    disk:
+      name: whatsapp-auth
+      mountPath: /opt/data/whatsapp-auth
+      sizeGB: 1

@@ -135,22 +135,30 @@ GET https://knowtis-whatsapp.onrender.com/health
 ### WhatsApp Authentication Persistence
 
 > [!WARNING]
-> **Free Tier Limitation**: Render does not support persistent disks on the Free Tier. This means WhatsApp authentication state will reset whenever the service restarts or redeploys, and you will need to re-scan the QR code.
+> **Why you keep losing the paired session**: Render's web services use an
+> **ephemeral filesystem** by default. `auth_info_baileys/` writes to the app
+> working directory, which is wiped on every deploy and on free-tier sleep/wake.
+> The bot then boots with no creds, re-enters pairing, and emits QR codes
+> forever — even though you already scanned earlier.
 >
-> **To enable persistence (surviving restarts and crashes)**:
-> 1. Upgrade the `knowtis-whatsapp` service plan to **Starter** ($7/month).
-> 2. In your `render.yaml`, uncomment the `disk:` block under `knowtis-whatsapp`:
->    ```yaml
->    disk:
->      name: whatsapp-auth
->      mountPath: /opt/render/project/src/whatsapp_connector/auth_info_baileys
->      sizeGB: 1
->    ```
-> 3. Save and redeploy the blueprint.
+> **Fix: mount a persistent Disk** ($0.25/GB/month for 1 GB — works on the Free
+> compute plan). The `disk:` block in `render.yaml` provisions it and the
+> `AUTH_DIR` env var points the connector at it:
+> ```yaml
+> envVars:
+>   - key: AUTH_DIR
+>     value: /opt/data/whatsapp-auth/auth_info_baileys
+> disk:
+>   name: whatsapp-auth
+>   mountPath: /opt/data/whatsapp-auth
+>   sizeGB: 1
+> ```
+> Save the blueprint and redeploy. Disks persist across **deploys, restarts,
+> and free-tier sleep/wake**.
 
-✅ Once upgraded, authentication survives service restarts
-✅ No need to re-scan QR code after crashes
-⚠️ You will still need to re-authenticate after code changes/redeployments (due to how Baileys cache behaves)
+✅ Once the disk is mounted, authentication survives deploys, restarts, and crashes.
+✅ No need to re-sscan the QR after deploys — Baileys resumes the saved session.
+⚠️ You'll only need to re-scan if you click "Reset Session" or remove the linked device from your phone (WhatsApp → Linked Devices).
 
 ### Database Limits
 
