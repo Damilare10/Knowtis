@@ -580,7 +580,24 @@ app.post('/join', requireConnectorAuth, async (req, res) => {
     return res.status(503).json({ detail: 'WhatsApp bot is not authenticated/connected.' });
   }
 
-  let inviteCode = invite_link.trim().split('/').pop();
+  let inviteCode = invite_link.trim();
+
+  // Classic links look like https://chat.whatsapp.com/CODE ; newer share
+  // links append ?uba=...&ref=... and may have a trailing slash or +. Strip
+  // query/hash before taking the last non-empty path segment, otherwise
+  // split('/').pop() would feed WhatsApp a malformed code.
+  inviteCode = inviteCode
+    .split('?')[0] // drop ?uba=...&ref=... query params
+    .split('#')[0] // drop #fragment
+    .replace(/\+$/, '') // some links have a trailing +
+    .split('/')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .pop() || '';
+
+  if (!inviteCode) {
+    return res.status(400).json({ detail: 'Could not extract an invite code from the provided link.' });
+  }
 
   try {
     console.log(`Attempting to join group with code: ${inviteCode}`);
@@ -605,7 +622,12 @@ app.post('/join', requireConnectorAuth, async (req, res) => {
     });
   } catch (err) {
     console.error(`Error joining group [${inviteCode}]:`, err.message);
-    res.status(500).json({ detail: `Failed to join group: ${err.message}` });
+    const status = err?.output?.statusCode ?? null;
+    const friendly =
+      err.message?.match(/expired|used|revoked|invalid|not active/i)
+        ? 'WhatsApp rejected the invite code — it may be expired, revoked, already-used (single-use link), or admin-approval gated by the group.'
+        : err.message;
+    res.status(500).json({ detail: `Failed to join group: ${friendly}`, baileys_status: status, invite_code: inviteCode });
   }
 });
 
