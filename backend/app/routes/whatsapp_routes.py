@@ -91,11 +91,25 @@ WebhookPayload = Annotated[
 
 
 def _validate_invite_link(link: str) -> bool:
-    """Basic WhatsApp invite link format validation"""
-    return (
-        link.startswith("https://chat.whatsapp.com/") or
-        link.startswith("http://chat.whatsapp.com/")
+    """Basic WhatsApp invite link format validation.
+
+    Accepts the canonical share URL, with or without a trailing slash, and
+    tolerates the newer share links that append ?uba=...&ref=... query params.
+    """
+    stripped = link.strip().split("?")[0].split("#")[0]
+    return stripped.startswith("https://chat.whatsapp.com/") or stripped.startswith(
+        "http://chat.whatsapp.com/"
     )
+
+
+def _extract_invite_code(link: str) -> str:
+    """Pull the bare invite code out of a chat.whatsapp.com link.
+
+    Handles trailing slashes, query strings (?uba=share&ref=...), fragments,
+    and stray trailing '+' characters that some copied links carry.
+    """
+    cleaned = link.strip().split("?")[0].split("#")[0].rstrip("/").rstrip("+")
+    return cleaned.split("/")[-1]
 
 
 @router.get("", response_model=list[WhatsAppGroupResponse])
@@ -146,7 +160,12 @@ async def join_group(
             )
 
     # Extract group invite code from link
-    invite_code = body.invite_link.rstrip("/").split("/")[-1]
+    invite_code = _extract_invite_code(body.invite_link)
+    if not invite_code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not extract an invite code from the provided link.",
+        )
 
     # Build the canonical pending JID so we look up by exact match only — a
     # broad ``LIKE %invite_code%`` would falsely match unrelated real JIDs
