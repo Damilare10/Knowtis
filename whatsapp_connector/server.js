@@ -30,6 +30,8 @@ let sock = null;
 let connectionState = 'DISCONNECTED';
 let latestQr = null;
 let botJid = null;
+let connectionFailCount = 0;
+let lastConnectedAt = null;
 
 const isLoopback = (req) => {
   const ip = req.ip || req.connection?.remoteAddress || '';
@@ -134,6 +136,7 @@ const createSocket = async () => {
     if (qr) {
       latestQr = qr;
       connectionState = 'AWAITING_SCAN';
+      connectionFailCount = 0;
       console.log('QR code received — click “Generate / Show QR” on /status');
     }
 
@@ -145,6 +148,8 @@ const createSocket = async () => {
     if (connection === 'open') {
       connectionState = 'CONNECTED';
       latestQr = null;
+      connectionFailCount = 0;
+      lastConnectedAt = Date.now();
       botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
       console.log(`WhatsApp connection is OPEN. Bot JID: ${botJid}`);
       await sendWebhook('connection_status', { status: 'CONNECTED' });
@@ -155,12 +160,37 @@ const createSocket = async () => {
       botJid = null;
       latestQr = null;
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      console.log(`WhatsApp connection CLOSED (code=${statusCode}). Reconnecting? ${shouldReconnect}`);
+      const loggedOut = statusCode === DisconnectReason.loggedOut;
+      console.log(`WhatsApp connection CLOSED (code=${statusCode}).`);
+
+      // Loop guard: if we just connected and dropped immediately, the persisted
+      // auth state is likely stale/unregistered. After a few short-lived
+      // attempts, stop hammering WhatsApp and surface a QR via /reset instead.
+      const now = Date.now();
+      const wasShort = lastConnectedAt && (now - lastConnectedAt) < 5000;
+      if (wasShort) {
+        connectionFailCount += 1;
+      } else {
+        connectionFailCount = 0;
+      }
+      console.log(`connectionFailCount=${connectionFailCount} (wasShort=${wasShort})`);
+
+      if (loggedOut || connectionFailCount >= 5) {
+        console.log(loggedOut
+          ? 'Logged out — stopping reconnect loop. Reset auth via /reset to re-pair.'
+          : 'Too many short-lived reconnects — stopping loop. Reset auth via /reset to re-pair.');
+        await sendWebhook('connection_status', { status: 'DISCONNECTED' });
+        connectionState = 'AWAITING_RESET';
+        return;
+      }
+
+      const shouldReconnect = true;
+      const backoffMs = Math.min(3000 * Math.pow(2, connectionFailCount), 30000);
+      console.log(`Reconnecting in ${backoffMs}ms...`);
       await sendWebhook('connection_status', { status: 'DISCONNECTED' });
 
       if (shouldReconnect) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
         createSocket().catch(err => console.error('Reconnect createSocket failed:', err && err.message));
       }
     }
@@ -234,7 +264,7 @@ app.get('/status', requireConnectorAuth, (req, res) => {
 
   const wantsHtml = accept.includes('text/html') || accept.includes('application/xhtml+xml');
   if (wantsHtml) {
-    const statusColor = connectionState === 'CONNECTED' ? '#22c55e' : connectionState === 'CONNECTING' ? '#f59e0b' : connectionState === 'AWAITING_SCAN' ? '#3b82f6' : '#ef4444';
+    const statusColor = connectionState === 'CONNECTED' ? '#22c55e' : connectionState === 'CONNECTING' ? '#f59e0b' : connectionState === 'AWAITING_SCAN' ? '#3b82f6' : connectionState === 'AWAITING_RESET' ? '#a855f7' : '#ef4444';
     const canGenerate = connectionState === 'AWAITING_SCAN' || connectionState === 'DISCONNECTED' || connectionState === 'CONNECTING';
     const qrSection = connectionState === 'AWAITING_SCAN' ? `
       <div class="qr-section">
@@ -250,6 +280,11 @@ app.get('/status', requireConnectorAuth, (req, res) => {
       <div class="qr-section">
         <h2>⏳ Connecting...</h2>
         <p class="hint">Establishing connection to WhatsApp. If no QR appears, click “Generate / Show QR”.</p>
+      </div>
+    ` : connectionState === 'AWAITING_RESET' ? `
+      <div class="qr-section">
+        <h2>🟣 Reconnect Loop Stopped</h2>
+        <p class="hint">The persisted auth state is stale/unregistered and WhatsApp keeps closing the socket. Click “Reset Session” to wipe it and start fresh (you'll get a QR to scan).</p>
       </div>
     ` : `
       <div class="qr-section">
@@ -325,6 +360,7 @@ app.get('/status', requireConnectorAuth, (req, res) => {
       <button class="btn" id="qr-btn" ${canGenerate ? '' : 'disabled'}>Generate / Show QR</button>
       <button class="btn secondary" onclick="location.reload()">↻ Refresh</button>
       <button class="btn danger" id="disc-btn">Disconnect</button>
+      <button class="btn danger" id="reset-btn">Reset Session</button>
     </div>
     <div class="meta">
       Bot JID: <span>${botJid || '—'}</span><br>
@@ -344,6 +380,7 @@ app.get('/status', requireConnectorAuth, (req, res) => {
     }
     const qrBtn = document.getElementById('qr-btn');
     const discBtn = document.getElementById('disc-btn');
+    const resetBtn = document.getElementById('reset-btn');
     const qrImg = document.getElementById('qr-img');
     const qrStatus = document.getElementById('qr-status');
     qrBtn.addEventListener('click', async () => {
@@ -375,6 +412,25 @@ app.get('/status', requireConnectorAuth, (req, res) => {
       discBtn.disabled = false;
       if (r.ok) setTimeout(() => location.reload(), 1200);
     });
+    resetBtn.addEventListener('click', async () => {
+      if (!confirm('Wipe the saved WhatsApp session and start fresh? You will get a new QR to scan.')) return;
+      resetBtn.disabled = true;
+      qrStatus.textContent = 'Resetting session (wiping auth state)...';
+      qrImg.style.display = 'none';
+      try {
+        const r = await call('POST', '/reset');
+        if (r.ok) {
+          qrStatus.textContent = 'Session reset. Waiting for a fresh QR...';
+          setTimeout(() => location.reload(), 8000);
+        } else {
+          qrStatus.textContent = (r.body && r.body.detail) || ('Reset failed (' + r.status + ').');
+          resetBtn.disabled = false;
+        }
+      } catch (e) {
+        qrStatus.textContent = 'Network error. Retry.';
+        resetBtn.disabled = false;
+      }
+    });
   </script>
 </body>
 </html>`);
@@ -388,8 +444,12 @@ app.get('/status', requireConnectorAuth, (req, res) => {
 });
 
 app.post('/generate-qr', requireConnectorAuth, async (req, res) => {
+  if (connectionState === 'AWAITING_RESET') {
+    return res.status(409).json({ detail: 'Reconnect loop stopped due to stale auth. Use POST /reset (or the “Reset Session” button) to wipe state and start fresh.', status: connectionState });
+  }
   if (!sock) {
-    return res.status(503).json({ detail: 'WhatsApp socket not initialized.' });
+    // No socket and no loop-stop — try a fresh connect on demand.
+    createSocket().catch(err => console.error('On-demand createSocket failed:', err && err.message));
   }
   if (connectionState === 'CONNECTED') {
     return res.status(409).json({ detail: 'Already connected. Disconnect first if you need a new QR code.', status: connectionState });
@@ -398,8 +458,10 @@ app.post('/generate-qr', requireConnectorAuth, async (req, res) => {
   try {
     // Trigger a reconnect which will push a new QR code
     console.log('Manually triggering QR code generation...');
-    sock.end();
-    await new Promise(r => setTimeout(r, 2000));
+    if (sock) {
+      sock.end();
+      await new Promise(r => setTimeout(r, 2000));
+    }
     await createSocket().catch(err => console.error('QR-trigger createSocket failed:', err && err.message));
     
     // Wait up to 30 seconds for the QR to arrive
@@ -451,6 +513,42 @@ app.post('/reconnect', requireConnectorAuth, async (req, res) => {
   } catch (err) {
     console.error('Reconnect failed:', err);
     return res.status(500).json({ detail: `Reconnect failed: ${err.message}` });
+  }
+});
+
+// Wipe the persisted Baileys auth state and start a fresh pairing flow.
+// Use this when a stale/unregistered session causes a reconnect loop with
+// no QR. The next createSocket() will have no credentials, so Baileys falls
+// into first-time pairing mode and emits a QR.
+app.post('/reset', requireConnectorAuth, async (req, res) => {
+  try {
+    console.log('Reset requested — wiping auth_info_baileys/ ...');
+    if (sock) {
+      try { sock.end(); } catch (e) {}
+      sock = null;
+    }
+    // Delete every file inside AUTH_DIR (keep the folder itself)
+    for (const entry of fs.readdirSync(AUTH_DIR)) {
+      try { fs.rmSync(path.join(AUTH_DIR, entry), { recursive: true, force: true }); }
+      catch (e) { console.error(`Could not delete ${entry}:`, e.message); }
+    }
+    connectionState = 'DISCONNECTED';
+    latestQr = null;
+    botJid = null;
+    connectionFailCount = 0;
+    lastConnectedAt = null;
+    console.log('Auth state wiped. Starting fresh socket for QR...');
+
+    // Kick a fresh connect — don't await the QR here, the client polls /status.
+    createSocket().catch(err => console.error('Post-reset createSocket failed:', err && err.message));
+
+    return res.json({
+      success: true,
+      message: 'Auth state wiped. A new QR will be generated shortly — refresh /status and click Generate / Show QR.'
+    });
+  } catch (err) {
+    console.error('Reset failed:', err);
+    return res.status(500).json({ detail: `Reset failed: ${err.message}` });
   }
 });
 
@@ -539,6 +637,7 @@ app.get('/', (req, res) => {
       generateQr: 'POST /generate-qr',
       disconnect: 'POST /disconnect',
       reconnect: 'POST /reconnect',
+      reset: 'POST /reset',
       join: 'POST /join',
       groups: 'GET  /groups',
     },
@@ -557,6 +656,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  POST /generate-qr  — Manually trigger QR code (when ready)`);
   console.log(`  POST /disconnect   — Disconnect the bot`);
   console.log(`  POST /reconnect    — Reconnect the bot`);
+  console.log(`  POST /reset        — Wipe auth state & start fresh (emits a new QR)`);
   console.log(`  POST /join         — Join a WhatsApp group`);
   console.log(`  GET  /groups       — List all joined groups`);
 
