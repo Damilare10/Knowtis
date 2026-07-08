@@ -386,6 +386,24 @@ app.get('/status', requireConnectorAuth, (req, res) => {
             : 'https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=' + encodeURIComponent(r.body.qrCode);
           qrImg.style.display = 'block';
           qrStatus.textContent = r.body.message || 'Scan with WhatsApp → Linked Devices → Link a Device.';
+          // Auto-reload the moment the scan succeeds (state flips to CONNECTED).
+          let polls = 0;
+          const pollId = setInterval(async () => {
+            polls++;
+            try {
+              const st = await call('GET', '/status');
+              if (st.ok && st.body && st.body.status === 'CONNECTED') {
+                clearInterval(pollId);
+                qrImg.style.display = 'none';
+                qrStatus.textContent = '✅ Connected! Bot JID: ' + (st.body.botJid || 'set') + ' — reloading...';
+                setTimeout(() => location.reload(), 1000);
+              }
+            } catch (e) {}
+            if (polls > 120) clearInterval(pollId); // ~2 min safety
+          }, 1000);
+        } else if (r.ok && r.body && r.body.status === 'CONNECTED') {
+          qrStatus.textContent = 'Already connected!';
+          setTimeout(() => location.reload(), 1000);
         } else {
           qrStatus.textContent = (r.body && r.body.detail) || ('Failed (' + r.status + ').') + ' You can refresh & retry.';
         }
@@ -456,9 +474,17 @@ app.post('/generate-qr', requireConnectorAuth, async (req, res) => {
     }
     await createSocket().catch(err => console.error('QR-trigger createSocket failed:', err && err.message));
     
-    // Wait up to 30 seconds for the QR to arrive
+    // Wait up to 30 seconds for the QR to arrive (or the scan to complete)
     const startTime = Date.now();
     while (Date.now() - startTime < 30000) {
+      if (connectionState === 'CONNECTED') {
+        return res.json({
+          success: true,
+          status: 'CONNECTED',
+          botJid,
+          message: 'Scan successful — bot connected. Reload /status to see the connected state.'
+        });
+      }
       if (latestQr) {
         return res.json({
           success: true,
