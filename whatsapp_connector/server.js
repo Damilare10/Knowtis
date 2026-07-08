@@ -31,7 +31,7 @@ let connectionState = 'DISCONNECTED';
 let latestQr = null;
 let botJid = null;
 let connectionFailCount = 0;
-let lastConnectedAt = null;
+let lastProgressAt = null;
 
 const isLoopback = (req) => {
   const ip = req.ip || req.connection?.remoteAddress || '';
@@ -137,6 +137,7 @@ const createSocket = async () => {
       latestQr = qr;
       connectionState = 'AWAITING_SCAN';
       connectionFailCount = 0;
+      lastProgressAt = Date.now();
       console.log('QR code received — click “Generate / Show QR” on /status');
     }
 
@@ -149,7 +150,7 @@ const createSocket = async () => {
       connectionState = 'CONNECTED';
       latestQr = null;
       connectionFailCount = 0;
-      lastConnectedAt = Date.now();
+      lastProgressAt = Date.now();
       botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
       console.log(`WhatsApp connection is OPEN. Bot JID: ${botJid}`);
       await sendWebhook('connection_status', { status: 'CONNECTED' });
@@ -161,31 +162,25 @@ const createSocket = async () => {
       latestQr = null;
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const loggedOut = statusCode === DisconnectReason.loggedOut;
-      console.log(`WhatsApp connection CLOSED (code=${statusCode}).`);
+      console.log(`WhatsApp connection CLOSED (code=${statusCode}, error=${lastDisconnect?.error?.message || lastDisconnect?.error || 'none'}).`);
 
-      // Loop guard: if we just connected and dropped immediately, the persisted
-      // auth state is likely stale/unregistered. After a few short-lived
-      // attempts, stop hammering WhatsApp and surface a QR via /reset instead.
-      const now = Date.now();
-      const wasShort = lastConnectedAt && (now - lastConnectedAt) < 5000;
-      if (wasShort) {
-        connectionFailCount += 1;
-      } else {
-        connectionFailCount = 0;
-      }
-      console.log(`connectionFailCount=${connectionFailCount} (wasShort=${wasShort})`);
+      // Loop guard: count consecutive closes WITHOUT a QR or an open since the
+      // last progress. If we pile up closes with no QR ever being emitted, the
+      // persisted auth is stale/unregistered (or the WS transport is failing),
+      // so further reconnects are pointless. Stop and require an explicit reset.
+      connectionFailCount += 1;
+      console.log(`connectionFailCount=${connectionFailCount} (lastProgressAt=${lastProgressAt ? new Date(lastProgressAt).toISOString() : 'never'})`);
 
-      if (loggedOut || connectionFailCount >= 5) {
+      if (loggedOut || connectionFailCount >= 3) {
         console.log(loggedOut
           ? 'Logged out — stopping reconnect loop. Reset auth via /reset to re-pair.'
-          : 'Too many short-lived reconnects — stopping loop. Reset auth via /reset to re-pair.');
+          : `${connectionFailCount} consecutive closes with no QR/open — stopping loop. The persisted auth state is likely stale, or the WS transport is blocked. Use /reset to wipe and start fresh.`);
         await sendWebhook('connection_status', { status: 'DISCONNECTED' });
         connectionState = 'AWAITING_RESET';
         return;
       }
 
-      const shouldReconnect = true;
-      const backoffMs = Math.min(3000 * Math.pow(2, connectionFailCount), 30000);
+      const backoffMs = Math.min(3000 * Math.pow(2, connectionFailCount - 1), 30000);
       console.log(`Reconnecting in ${backoffMs}ms...`);
       await sendWebhook('connection_status', { status: 'DISCONNECTED' });
 
@@ -536,7 +531,7 @@ app.post('/reset', requireConnectorAuth, async (req, res) => {
     latestQr = null;
     botJid = null;
     connectionFailCount = 0;
-    lastConnectedAt = null;
+    lastProgressAt = null;
     console.log('Auth state wiped. Starting fresh socket for QR...');
 
     // Kick a fresh connect — don't await the QR here, the client polls /status.
