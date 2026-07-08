@@ -127,6 +127,37 @@ class WhatsAppService:
             logger.error(f"Failed to connect to WhatsApp connector groups endpoint: {e}")
             return []
 
+    @staticmethod
+    def check_invite(invite_code: str) -> Dict[str, Any]:
+        """
+        Resolve an invite code to its real group JID + metadata WITHOUT joining.
+        Returns { success, is_member, group_jid, group_name, group_description }.
+        Used by the reconcile flow to detect groups the bot joined manually on
+        the primary phone (WhatsApp blocks linked-device API joins).
+        """
+        url = f"{settings.whatsapp_connector_url}/check-invite/{invite_code}"
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.get(url, headers=WhatsAppService._auth_headers())
+                if response.status_code == 200:
+                    data = response.json()
+                    return {
+                        "success": True,
+                        "is_member": bool(data.get("is_member")),
+                        "group_jid": data.get("group_jid"),
+                        "group_name": data.get("group_name"),
+                        "group_description": data.get("group_description"),
+                    }
+                detail = "Unknown error"
+                try:
+                    detail = response.json().get("detail", response.text)
+                except Exception:
+                    detail = response.text
+                return {"success": False, "message": detail}
+        except httpx.RequestError as e:
+            logger.error(f"Failed to reach connector check-invite endpoint: {e}")
+            return {"success": False, "message": "WhatsApp connector service is currently unreachable."}
+
     # ------------------------------------------------------------------
     # Async connector methods (used by listener / recovery services)
     # ------------------------------------------------------------------

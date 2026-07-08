@@ -800,6 +800,46 @@ app.get('/groups', requireConnectorAuth, async (req, res) => {
   }
 });
 
+// Resolve an invite code to its real group JID + metadata WITHOUT joining.
+// Used by the backend reconcile flow to detect groups the bot is already a
+// member of (e.g. joined manually on the primary phone, since WhatsApp blocks
+// linked-device API joins with account_reachout_restricted).
+app.get('/check-invite/:code', requireConnectorAuth, async (req, res) => {
+  if (connectionState !== 'CONNECTED') {
+    return res.status(503).json({ detail: 'WhatsApp bot is not connected.' });
+  }
+
+  const code = (req.params.code || '').trim();
+  if (!code) {
+    return res.status(400).json({ detail: 'Invite code is required.' });
+  }
+
+  try {
+    const info = await sock.groupGetInviteInfo(code);
+    if (!info || !info.id) {
+      return res.status(404).json({ detail: 'Invite code could not be resolved (expired/revoked).' });
+    }
+
+    // Determine membership: groupFetchAllParticipating only returns groups the
+    // bot is in. If the resolved JID is present, the bot is a member.
+    let is_member = false;
+    try {
+      const list = await sock.groupFetchAllParticipating();
+      is_member = !!list[info.id];
+    } catch (e) { /* treat as not-a-member */ }
+
+    res.json({
+      group_jid: info.id,
+      group_name: info.subject || '',
+      group_description: info.desc || '',
+      is_member,
+    });
+  } catch (err) {
+    const msg = err.message || String(err);
+    res.status(500).json({ detail: `Failed to resolve invite: ${msg}` });
+  }
+});
+
 // ─── Render health check (unauthenticated) ─────────────────────────────────
 // Render's deploy health probe MUST get a 200 from an open path. /status is
 // auth-gated (401 without a secret), which is what was timing out deploys.
@@ -831,6 +871,7 @@ app.get('/', (req, res) => {
       reset: 'POST /reset',
       join: 'POST /join',
       groups: 'GET  /groups',
+      checkInvite: 'GET  /check-invite/:code',
     },
   });
 });

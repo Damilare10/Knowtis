@@ -145,6 +145,48 @@ def _process_pending_joins():
         if not pending_groups:
             return
 
+        # Reconcile pass: before attempting API joins (which WhatsApp blocks
+        # for linked devices with account_reachout_restricted), check whether
+        # the bot is already a member — e.g. the user joined the group manually
+        # on the bot's primary phone. If so, flip those records to ACTIVE and
+        # skip the API join entirely.
+        try:
+            from app.services.whatsapp_service import WhatsAppService
+            seen_codes = set()
+            still_pending = []
+            for g in pending_groups:
+                invite_code = g.group_jid.split("@")[0].replace("pending-", "")
+                if invite_code in seen_codes:
+                    continue
+                seen_codes.add(invite_code)
+                chk = WhatsAppService.check_invite(invite_code)
+                if chk.get("success") and chk.get("is_member"):
+                    real_jid = chk["group_jid"]
+                    matching = db.query(WhatsAppGroup).filter(
+                        WhatsAppGroup.group_jid == g.group_jid
+                    ).all()
+                    for mg in matching:
+                        mg.group_jid = real_jid
+                        mg.group_name = chk.get("group_name") or mg.group_name
+                        mg.group_description = chk.get("group_description") or mg.group_description
+                        mg.coverage_state = CoverageState.ACTIVE
+                        mg.join_date = datetime.utcnow()
+                        mg.last_coverage_update = datetime.utcnow()
+                        mg.join_attempts = 0
+                        mg.next_join_attempt = None
+                    db.commit()
+                    logger.info(
+                        f"Join queue: reconciled manual join for '{invite_code}' -> {real_jid} ({len(matching)} records)"
+                    )
+                else:
+                    still_pending.append(g)
+
+            if not still_pending:
+                return
+            pending_groups = still_pending
+        except Exception as reconcile_err:
+            logger.debug(f"Join queue: reconcile pass skipped: {reconcile_err}")
+
         # Anti-ban protection: check when the last group join occurred
         last_joined = db.query(WhatsAppGroup).filter(
             ~WhatsAppGroup.group_jid.like("pending-%"),

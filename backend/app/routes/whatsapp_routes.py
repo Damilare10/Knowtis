@@ -310,6 +310,81 @@ async def get_bot_status(
     return WhatsAppService.get_status()
 
 
+@router.post("/reconcile-joins")
+async def reconcile_pending_joins(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Detect groups the bot is already a member of (joined manually on the
+    primary phone) and flip their pending records to ACTIVE.
+
+    WhatsApp blocks linked-device API joins with account_reachout_restricted,
+    so the supported flow is: join the group manually on the bot's phone,
+    then call this endpoint to reconcile.
+    """
+    pending_groups = db.query(WhatsAppGroup).filter(
+        WhatsAppGroup.group_jid.like("pending-%"),
+        WhatsAppGroup.is_active == True,
+    ).all()
+
+    if not pending_groups:
+        return {"status": "success", "message": "No pending groups to reconcile.", "reconciled": 0, "checked": 0}
+
+    # De-duplicate by invite code (multiple users may link the same group).
+    seen_codes: dict[str, str] = {}
+    reconciled = 0
+
+    for group in pending_groups:
+        invite_code = group.group_jid.split("@")[0].replace("pending-", "")
+
+        if invite_code in seen_codes:
+            # Already resolved this code — apply the cached result.
+            real_jid = seen_codes[invite_code]
+            group.group_jid = real_jid
+            group.coverage_state = CoverageState.ACTIVE
+            group.join_date = datetime.utcnow()
+            group.last_coverage_update = datetime.utcnow()
+            group.join_attempts = 0
+            group.next_join_attempt = None
+            reconciled += 1
+            continue
+
+        res = WhatsAppService.check_invite(invite_code)
+        if not res.get("success"):
+            logger.info(f"Reconcile: could not resolve invite '{invite_code}': {res.get('message')}")
+            continue
+
+        if res.get("is_member"):
+            real_jid = res["group_jid"]
+            seen_codes[invite_code] = real_jid
+            # Update ALL pending records for this invite code.
+            matching = db.query(WhatsAppGroup).filter(
+                WhatsAppGroup.group_jid == group.group_jid
+            ).all()
+            for g in matching:
+                g.group_jid = real_jid
+                g.group_name = res.get("group_name") or g.group_name
+                g.group_description = res.get("group_description") or g.group_description
+                g.coverage_state = CoverageState.ACTIVE
+                g.join_date = datetime.utcnow()
+                g.last_coverage_update = datetime.utcnow()
+                g.join_attempts = 0
+                g.next_join_attempt = None
+            reconciled += len(matching)
+            logger.info(f"Reconcile: group '{invite_code}' is a member -> {real_jid} ({len(matching)} records)")
+        else:
+            logger.info(f"Reconcile: bot is not a member of '{invite_code}' yet (resolved jid={res.get('group_jid')})")
+
+    db.commit()
+    return {
+        "status": "success",
+        "checked": len(pending_groups),
+        "reconciled": reconciled,
+        "message": f"Reconciled {reconciled} pending record(s). Join the group manually on the bot's phone first if none matched.",
+    }
+
+
 @router.post("/webhook")
 async def whatsapp_webhook(
     payload: WebhookPayload,
