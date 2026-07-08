@@ -1,4 +1,128 @@
 services:
+  # ── PostgreSQL (pgvector) ──────────────────────────────────────────────
+  - type: pserv
+    name: knowtis-postgres
+    env: docker
+    region: oregon
+    plan: free
+    dockerfilePath: docker/postgres.Dockerfile
+    ipAllowList: []
+
+  # ── Redis (Celery broker + results) ────────────────────────────────────
+  - type: redis
+    name: knowtis-redis
+    region: oregon
+    plan: free
+    ipAllowList: []
+
+  # ── FastAPI backend (web) ─────────────────────────────────────────────
+  - type: web
+    name: knowtis-backend
+    env: docker
+    region: oregon
+    plan: free
+    rootDir: backend
+    dockerfilePath: Dockerfile
+    healthCheckPath: /health
+    healthCheckGracePeriodSeconds: 60
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: knowtis-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: knowtis-redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: knowtis-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: redis
+          name: knowtis-redis
+          property: connectionString
+      # WhatsApp connector (separate Render service) — cross-service calls
+      # MUST use the public URL; localhost inside the backend container can
+      # never reach the connector.
+      - key: WHATSAPP_CONNECTOR_URL
+        value: https://knowtis-whatsapp.onrender.com
+      - key: WHATSAPP_CONNECTOR_TIMEOUT
+        value: "30.0"
+      # Shared secrets — sync:false = set manually in the dashboard.
+      # MUST match the identical keys on the knowtis-whatsapp service.
+      - key: WHATSAPP_CONNECTOR_API_SECRET
+        sync: false
+      - key: WHATSAPP_CONNECTOR_WEBHOOK_SECRET
+        sync: false
+      - key: BACKEND_URL
+        value: https://knowtis-backend.onrender.com
+      # Google OAuth (optional — set in dashboard)
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      # AI (optional — set in dashboard)
+      - key: GROQ_API_KEY
+        sync: false
+      # RevenueCat (optional — set in dashboard)
+      - key: REVENUECAT_WEBHOOK_SECRET
+        sync: false
+      # Security keys — generate once and set in dashboard.
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: REFRESH_TOKEN_SECRET
+        sync: false
+
+  # ── Celery worker (background jobs) ──────────────────────────────────
+  - type: worker
+    name: knowtis-worker
+    env: docker
+    region: oregon
+    plan: free
+    rootDir: backend
+    dockerfilePath: Dockerfile.worker
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: knowtis-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: knowtis-redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: knowtis-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: redis
+          name: knowtis-redis
+          property: connectionString
+      - key: WHATSAPP_CONNECTOR_URL
+        value: https://knowtis-whatsapp.onrender.com
+      - key: WHATSAPP_CONNECTOR_TIMEOUT
+        value: "30.0"
+      - key: WHATSAPP_CONNECTOR_API_SECRET
+        sync: false
+      - key: WHATSAPP_CONNECTOR_WEBHOOK_SECRET
+        sync: false
+      - key: CELERY_TASK_ALWAYS_EAGER
+        value: "false"
+      - key: GROQ_API_KEY
+        sync: false
+
+  # ── WhatsApp connector (Node/Baileys bridge) ──────────────────────────
   - type: web
     name: knowtis-whatsapp
     env: node
