@@ -356,12 +356,12 @@ body::before {
   margin-inline: auto;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
 }
 @media (min-width: 1024px) {
   .app-page {
     max-width: 1120px;
-    gap: 24px;
+    gap: 18px;
   }
 }
 .page-kicker {

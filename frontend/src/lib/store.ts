@@ -4,6 +4,7 @@ Wired to the real backend API. No dev mock user fallback.
 */
 import { create } from 'zustand';
 import { authApi, eventsApi, remindersApi, whatsappApi, notificationsApi, aiApi, widgetApi, billingApi, type ChatMessage } from './api';
+import { persistWidgetAuth, clearWidgetAuth } from './widget-auth';
 import type { AcademicEvent, EventType } from './events';
 
 export type { AcademicEvent, EventType };
@@ -203,6 +204,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const { access_token, user } = response.data;
       localStorage.setItem('knowtis_token', access_token);
       localStorage.setItem('knowtis_onboarded', 'true');
+      persistWidgetAuth(access_token);
       set({
         token: access_token,
         user: normalizeUser(user as Record<string, unknown>),
@@ -230,6 +232,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const { access_token, user } = response.data;
       localStorage.setItem('knowtis_token', access_token);
       localStorage.removeItem('knowtis_onboarded');
+      persistWidgetAuth(access_token);
       set({
         token: access_token,
         user: normalizeUser(user as Record<string, unknown>),
@@ -251,6 +254,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   logout: () => {
     localStorage.removeItem('knowtis_token');
+    clearWidgetAuth();
     set({
       user: null,
       token: null,
@@ -327,6 +331,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       result.reason === 'error' ? result.err : '',
     );
     localStorage.removeItem('knowtis_token');
+    clearWidgetAuth();
     set({
       user: null,
       token: null,

@@ -3,6 +3,7 @@
 import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
+import { persistWidgetAuth } from '@/lib/widget-auth';
 import { Loader2 } from 'lucide-react';
 
 function CallbackContent() {
@@ -14,6 +15,7 @@ function CallbackContent() {
     const token = searchParams.get('token');
     if (token) {
       localStorage.setItem('knowtis_token', token);
+      persistWidgetAuth(token);
       checkAuth().then(() => {
         const onboarded = localStorage.getItem('knowtis_onboarded') === 'true';
         router.push(onboarded ? '/dashboard' : '/onboarding/research');

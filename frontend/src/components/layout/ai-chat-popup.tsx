@@ -164,10 +164,12 @@ export default function AIChatPopup() {
             }}
             transition={{ type: 'spring', stiffness: 380, damping: 35 }}
             className="fixed z-[150] flex flex-col overflow-hidden bg-white/80 backdrop-blur-2xl border border-white/60 shadow-2xl
-              /* Mobile Positioning */
-              bottom-4 left-4 right-4 top-[14dvh] rounded-[2rem]
-              /* Desktop Positioning */
-              lg:top-4 lg:bottom-4 lg:right-4 lg:left-auto lg:w-[460px]"
+              left-4 right-4 top-[10dvh] rounded-[2rem]
+              lg:top-4 lg:right-4 lg:left-auto lg:w-[460px]"
+            style={{
+              bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14px)',
+              maxHeight: 'calc(100dvh - max(10dvh, env(safe-area-inset-top, 0px)) - env(safe-area-inset-bottom, 0px) - 28px)',
+            }}
           >
             {/* Header */}
             <div className="p-5 border-b border-[#E9E9E6]/50 bg-white/40 flex items-start gap-3 shrink-0">

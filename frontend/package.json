@@ -9,6 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
     "@dicebear/collection": "^9.4.2",
     "@dicebear/core": "^9.4.2",
     "@phosphor-icons/react": "^2.1.10",

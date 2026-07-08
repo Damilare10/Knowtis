@@ -363,18 +363,18 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="app-page relative z-10 space-y-6 pb-32">
+    <div className="app-page relative z-10 space-y-4 pb-24">
       <motion.div {...FADE(0)} className="flex items-center justify-between gap-4 pt-2">
         <div className="flex min-w-0 items-center gap-3">
           <Link
             href="/profile"
-            className="h-12 w-12 shrink-0 overflow-hidden rounded-[20px] bg-[#D9F1EC] shadow-[inset_0_7px_12px_rgba(255,255,255,0.72),0_14px_28px_rgba(30,30,30,0.08)] transition-transform active:scale-[0.98]"
+            className="h-10 w-10 shrink-0 overflow-hidden rounded-[16px] bg-[#D9F1EC] shadow-[inset_0_7px_12px_rgba(255,255,255,0.72),0_14px_28px_rgba(30,30,30,0.08)] ring-2 ring-[#FF5A36] ring-offset-2 ring-offset-[#FBFBFA] transition-transform active:scale-[0.98]"
             aria-label="Open profile"
           >
             <ProfileAvatar name={name} email={email} className="h-full w-full object-cover" />
           </Link>
           <div className="min-w-0">
-            <h1 className="truncate text-[22px] font-black leading-none tracking-[-0.04em] text-[#171717]">
+            <h1 className="truncate text-[18px] font-black leading-none tracking-[-0.04em] text-[#171717]">
               <span className="text-[#686862]">Hi, </span>
               <span>{firstName}</span>
               <span className="text-[#FF5A36]">.</span>
@@ -386,7 +386,7 @@ export default function DashboardPage() {
         </div>
         <Link
           href="/notifications"
-          className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-[20px] bg-white text-[#171717] shadow-[inset_0_7px_12px_rgba(255,255,255,0.72),0_14px_28px_rgba(30,30,30,0.08)] transition-transform hover:-translate-y-0.5 active:scale-[0.98]"
+          className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] bg-white text-[#171717] shadow-[inset_0_7px_12px_rgba(255,255,255,0.72),0_14px_28px_rgba(30,30,30,0.08)] transition-transform hover:-translate-y-0.5 active:scale-[0.98]"
           aria-label="Open notifications"
         >
           <Bell className="h-5 w-5" strokeWidth={2.4} />
@@ -430,7 +430,7 @@ export default function DashboardPage() {
       <motion.header {...FADE(1)} className="flex flex-col items-center">
         {cascade.length > 0 ? (
           <>
-            <div className="relative w-full h-[200px] sm:h-[220px]">
+            <div className="relative w-full h-[176px] sm:h-[196px]">
               {cascade.map((e, i) => (
                 <StickyNote
                   key={e.id}
@@ -486,8 +486,8 @@ export default function DashboardPage() {
       ) : (
         <>
         {/* ── Stat ribbon ─────────────────────────────────── */}
-        <motion.section {...FADE(1)} aria-label="Today's summary" className="mb-6">
-          <div className="relative overflow-hidden rounded-[32px] border border-[#F0F0ED]/50 bg-white/70 p-5 shadow-[0_24px_54px_rgba(0,0,0,0.04),inset_0_1px_0_rgba(255,255,255,1)] backdrop-blur-xl">
+        <motion.section {...FADE(1)} aria-label="Today's summary" className="mb-4">
+          <div className="relative overflow-hidden rounded-[32px] border border-[#F0F0ED]/50 bg-white/70 p-4 shadow-[0_24px_54px_rgba(0,0,0,0.04),inset_0_1px_0_rgba(255,255,255,1)] backdrop-blur-xl">
             <div className="relative mb-4 flex items-center gap-2">
               <div className="flex h-8 w-8 -rotate-3 items-center justify-center rounded-2xl bg-[#FF5A36] shadow-[0_12px_24px_rgba(255,90,54,0.22),inset_0_5px_9px_rgba(255,255,255,0.28)]">
                 <CalendarDays className="w-4 h-4 text-white" />
@@ -519,8 +519,8 @@ export default function DashboardPage() {
 
         {/* ── Today's Briefing / Night Brief ──────────────── */}
         {nightBrief?.summary && (
-          <motion.section {...FADE(1.5)} aria-label="Daily Briefing Summary" className="mb-6">
-            <div className="relative overflow-hidden rounded-[32px] border border-[#FAD7CD]/40 bg-gradient-to-br from-[#FFF9F6] via-white to-[#FBFBFA] p-6 shadow-[0_24px_48px_rgba(255,90,54,0.04),inset_0_1px_0_rgba(255,255,255,1)]">
+          <motion.section {...FADE(1.5)} aria-label="Daily Briefing Summary" className="mb-4">
+            <div className="relative overflow-hidden rounded-[32px] border border-[#FAD7CD]/40 bg-gradient-to-br from-[#FFF9F6] via-white to-[#FBFBFA] p-5 shadow-[0_24px_48px_rgba(255,90,54,0.04),inset_0_1px_0_rgba(255,255,255,1)]">
               {/* Decorative light */}
               <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[#FFF0EB]/40 blur-[40px]" />
               
@@ -567,10 +567,10 @@ export default function DashboardPage() {
         )}
 
         {/* ── Urgent + Deadlines side by side on desktop ── */}
-        <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-8 lg:space-y-0">
+        <div className="lg:grid lg:grid-cols-2 lg:gap-5 space-y-5 lg:space-y-0">
 
           {/* Column 1: High Priority + Latest from Groups */}
-          <div className="space-y-8">
+          <div className="space-y-5">
             {/* ── Urgent ───────────────────────────────────────── */}
             <motion.section {...FADE(2)} aria-label="High Priority">
               <SectionHead title="High Priority" href="/updates" cta="See all" />
@@ -682,7 +682,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Column 2: On the Horizon */}
-          <div className="space-y-8">
+          <div className="space-y-5">
             {/* ── Deadlines (rings) ────────────────────────────── */}
             {deadlines.length > 0 && (
             <motion.section {...FADE(3)} aria-label="On the Horizon">
