@@ -142,19 +142,28 @@ GET https://knowtis-whatsapp.onrender.com/health
 > forever — even though you already scanned earlier.
 >
 > **Fix: mount a persistent Disk** ($0.25/GB/month for 1 GB — works on the Free
-> compute plan). The `disk:` block in `render.yaml` provisions it and the
-> `AUTH_DIR` env var points the connector at it:
+> compute plan). Render does NOT auto-apply a `disk:` block added to
+> `render.yaml` for an existing service — you must add the disk manually:
+> 1. Render Dashboard → `knowtis-whatsapp` service → **Disks** (left sidebar).
+> 2. **Add Disk**.
+> 3. Mount path: `/opt/render/project/src/whatsapp-auth` (a subdirectory of the
+>    Node runtime source path — Render disallows mounting at the bare
+>    `/opt/render/project/src` itself, but a subdir is allowed).
+> 4. Size: 1 GB.
+> 5. Save — Render triggers a new deploy.
+>
+> Then set the connector's auth dir to write inside the mount. `render.yaml`
+> wires this up so a fresh blueprint sync will include it:
 > ```yaml
 > envVars:
 >   - key: AUTH_DIR
->     value: /opt/data/whatsapp-auth/auth_info_baileys
+>     value: /opt/render/project/src/whatsapp-auth/auth_info_baileys
 > disk:
 >   name: whatsapp-auth
->   mountPath: /opt/data/whatsapp-auth
+>   mountPath: /opt/render/project/src/whatsapp-auth
 >   sizeGB: 1
 > ```
-> Save the blueprint and redeploy. Disks persist across **deploys, restarts,
-> and free-tier sleep/wake**.
+> Disks persist across **deploys, restarts, and free-tier sleep/wake**.
 
 ✅ Once the disk is mounted, authentication survives deploys, restarts, and crashes.
 ✅ No need to re-sscan the QR after deploys — Baileys resumes the saved session.
