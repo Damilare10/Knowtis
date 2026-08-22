@@ -108,7 +108,7 @@ def run_startup_migrations(engine: Engine) -> None:
     # 1. Migrate raw_messages table if missing new columns
     try:
         raw_columns = {row["name"] for row in inspector.get_columns("raw_messages")}
-        missing_raw = {"quoted_message_id", "quoted_message_text", "ai_attempts"} - raw_columns
+        missing_raw = {"quoted_message_id", "quoted_message_text", "ai_attempts", "text_hash"} - raw_columns
         if missing_raw:
             logger.info(
                 "Running startup migration: adding raw_messages columns: %s",
@@ -127,6 +127,12 @@ def run_startup_migrations(engine: Engine) -> None:
                         else:
                             conn.execute(text("ALTER TABLE raw_messages ADD COLUMN IF NOT EXISTS ai_attempts INTEGER DEFAULT 0 NOT NULL"))
                             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_raw_messages_ai_attempts ON raw_messages (ai_attempts)"))
+                    elif col == "text_hash":
+                        if engine.dialect.name == "sqlite":
+                            conn.execute(text("ALTER TABLE raw_messages ADD COLUMN text_hash VARCHAR(64)"))
+                        else:
+                            conn.execute(text("ALTER TABLE raw_messages ADD COLUMN IF NOT EXISTS text_hash VARCHAR(64)"))
+                        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_raw_messages_text_hash ON raw_messages (text_hash)"))
                 conn.commit()
     except Exception as exc:
         logger.warning("Could not inspect or migrate table 'raw_messages': %s", exc)

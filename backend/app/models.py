@@ -221,6 +221,7 @@ class RawMessage(Base):
     quoted_message_id = Column(String(255), nullable=True)
     quoted_message_text = Column(Text, nullable=True)
     ai_processed = Column(Boolean, default=False, index=True)
+    text_hash = Column(String(64), index=True)
     ai_attempts = Column(Integer, default=0, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

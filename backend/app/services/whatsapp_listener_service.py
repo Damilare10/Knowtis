@@ -138,6 +138,10 @@ class WhatsAppListenerService:
 
         text = msg.get("message_text") or ""
 
+        # Single shared hash contract with the prefilter — never reimplement it
+        # here, or the two normalisations drift and repeat detection breaks.
+        from app.services.prefilter import compute_text_hash
+
         raw = RawMessage(
             user_id=group.user_id,
             group_id=group_id,
@@ -147,6 +151,7 @@ class WhatsAppListenerService:
             message_text=text,
             message_type=msg.get("message_type"),
             has_media=bool(msg.get("has_media", False)),
+            text_hash=compute_text_hash(text),
             # Ingest only stores the message; process_message_batch is what
             # processes it. Claiming PROCESSED here would make the field
             # meaningless and contradict the SKIPPED_*/QUARANTINED members.
