@@ -78,7 +78,8 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     Dependency that requires the current user to have the admin role.
     Raises HTTP 403 for non-admin users.
     """
-    if user.role != UserRole.ADMIN:
+    role_str = str(user.role.value if hasattr(user.role, 'value') else user.role).lower().strip()
+    if role_str != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Administrator access required.",

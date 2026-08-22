@@ -153,12 +153,39 @@ class FCMPushChannel(PushChannel):
                 "is_urgent": str(payload.get("is_urgent", False)).lower()
             }
             
+            # High-priority Android notification config (required for status-bar display when app is closed/in background)
+            android_config = messaging.AndroidConfig(
+                priority="high",
+                notification=messaging.AndroidNotification(
+                    channel_id="academic_alerts",
+                    icon="ic_stat_k_outline",
+                    color="#FF5A36",
+                    sound="default",
+                    default_sound=True,
+                    default_vibrate_timings=True,
+                    visibility="public",
+                    priority="max",
+                ),
+            )
+
+            # APNS config for iOS background notifications
+            apns_config = messaging.APNSConfig(
+                payload=messaging.APNSPayload(
+                    aps=messaging.Aps(
+                        sound="default",
+                        badge=1,
+                    )
+                )
+            )
+
             # Construct the messaging Message
             message = messaging.Message(
                 notification=messaging.Notification(
                     title=title,
                     body=body
                 ),
+                android=android_config,
+                apns=apns_config,
                 data=custom_data,
                 token=user.fcm_token
             )

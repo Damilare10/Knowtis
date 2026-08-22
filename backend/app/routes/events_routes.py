@@ -7,6 +7,7 @@ import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from uuid import UUID
 from app.database import get_db
 from app.models import AcademicEvent, User, EventType
@@ -51,7 +52,8 @@ async def list_events(
         if event_type:
             query = query.filter(AcademicEvent.event_type == event_type)
         if course_code:
-            query = query.filter(AcademicEvent.course_code == course_code)
+            query = query.filter(func.lower(
+                AcademicEvent.course_code) == course_code.lower())
 
         total = query.count()
 
@@ -114,12 +116,12 @@ async def search_events(
             limit=effective_limit,
             threshold=threshold
         )
-        
+
         return [
             {"event": event, "similarity": similarity}
             for event, similarity in matches
         ]
-        
+
     except Exception as e:
         logger.error(f"Error in semantic search endpoint: {e}")
         raise HTTPException(
@@ -192,7 +194,8 @@ async def create_event(
         canonical_id = canonical.id if canonical else None
 
         if is_duplicate:
-            logger.info(f"Duplicate detected — linking to canonical event {canonical_id}")
+            logger.info(
+                f"Duplicate detected — linking to canonical event {canonical_id}")
 
         # ── Persist event ─────────────────────────────────────────────────────
         event = AcademicEvent(

@@ -29,6 +29,7 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 
 ALLOWED_CONTENT_TYPES = {
     "image/jpeg", "image/png", "image/webp", "image/bmp", "image/tiff",
+    "application/pdf",
 }
 
 # Free-tier monthly OCR limit
@@ -164,7 +165,7 @@ async def extract_from_image(
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Unsupported file type: {file.content_type}. Accepted: JPEG, PNG, WebP, BMP, TIFF.",
+            detail=f"Unsupported file type: {file.content_type}. Accepted: JPEG, PNG, WebP, BMP, TIFF, PDF.",
         )
 
     image_bytes = await file.read()
@@ -181,18 +182,55 @@ async def extract_from_image(
             detail="Uploaded file is empty.",
         )
 
-    # ── OCR Processing ────────────────────────────────────────────────────────
-    try:
-        result = OCRService.process_image(image_bytes, user_instructions=instructions)
-    except Exception as e:
-        logger.error(f"OCR processing error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="OCR processing failed. Please try a clearer image.",
-        )
+    # ── OCR / PDF Processing ──────────────────────────────────────────────────
+    raw_text = ""
+    structured_events = []
 
-    raw_text = result.get("raw_text", "")
-    structured_events = result.get("structured_events", [])
+    if file.content_type == "application/pdf":
+        try:
+            import pypdf
+            import io
+            reader = pypdf.PdfReader(io.BytesIO(image_bytes))
+            raw_text_list = []
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    raw_text_list.append(page_text)
+            raw_text = "\n".join(raw_text_list).strip()
+
+            if not raw_text:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Could not extract text from PDF. If it is a scanned document, please convert it to images first.",
+                )
+
+            # Parse into structured academic events
+            events = OCRService._parse_events(raw_text)
+
+            # Apply natural-language filters if present
+            if instructions and events:
+                events = OCRService._apply_filters(events, instructions)
+
+            structured_events = events
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"PDF extraction error: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to parse PDF document.",
+            )
+    else:
+        try:
+            result = OCRService.process_image(image_bytes, user_instructions=instructions)
+            raw_text = result.get("raw_text", "")
+            structured_events = result.get("structured_events", [])
+        except Exception as e:
+            logger.error(f"OCR processing error: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="OCR processing failed. Please try a clearer image.",
+            )
 
     # ── Save OCR extraction record ────────────────────────────────────────────
     from uuid import UUID as _UUID
@@ -208,8 +246,8 @@ async def extract_from_image(
         group_id=parsed_group_id,
         message_id=None,
         extracted_text=raw_text,
-        extraction_confidence=0.85 if raw_text else 0.0,
-        extraction_strategy="paddleocr" if raw_text else "pytesseract",
+        extraction_confidence=0.95 if file.content_type == "application/pdf" else (0.85 if raw_text else 0.0),
+        extraction_strategy="pdf_parse" if file.content_type == "application/pdf" else ("paddleocr" if raw_text else "pytesseract"),
         user_instructions=instructions,
         filtered_events=structured_events,
     )

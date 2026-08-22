@@ -3,8 +3,6 @@ Confidence Scoring Engine for Academic Events
 """
 import logging
 from typing import Optional, Any, Dict
-from sqlalchemy.orm import Session
-from app.models import SourceReliability
 
 logger = logging.getLogger(__name__)
 
@@ -80,20 +78,3 @@ class ConfidenceScorer:
     @staticmethod
     def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
         return min(upper, max(lower, float(value or 0.0)))
-
-    @staticmethod
-    def get_source_reliability(sender_jid: Optional[str], db: Session) -> float:
-        """Looks up the reliability score for a sender. Defaults to 0.7."""
-        if not sender_jid or not db:
-            return 0.7
-
-        rel = db.query(SourceReliability).filter(
-            SourceReliability.sender_jid == sender_jid
-        ).first()
-
-        if rel:
-            return rel.reliability_score
-        
-        # Check if they are a known system contact or rep by naming conventions (heuristic)
-        # In a real system, we'd check group participant privileges.
-        return 0.7

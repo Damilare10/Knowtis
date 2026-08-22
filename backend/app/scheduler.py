@@ -4,10 +4,63 @@ Uses APScheduler to run periodic jobs inside the FastAPI process.
 Handles: reminder execution, Night Brief generation, and staggered WhatsApp group joining.
 """
 import logging
+import os
 import random
+import tempfile
+import time
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+
+# ── Single-instance guard ───────────────────────────────────────────────────
+# With uvicorn --reload, the parent reloader process AND the child worker
+# process both run the FastAPI startup handler. Without a lock, two APScheduler
+# instances would start — doubling every scheduled job (reminders, night
+# briefs, join attempts). This PID-file lock ensures only the first process
+# to acquire it runs the scheduler; the other skips startup silently.
+_SCHEDULER_PID_FILE = os.path.join(
+    tempfile.gettempdir(), 'knowtis_scheduler.pid'
+)
+
+
+def _acquire_scheduler_lock() -> bool:
+    """Atomically acquire the scheduler lock. Returns True if acquired."""
+    my_pid = os.getpid()
+    try:
+        fd = os.open(
+            _SCHEDULER_PID_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY
+        )
+        os.write(fd, str(my_pid).encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        try:
+            with open(_SCHEDULER_PID_FILE) as f:
+                existing_pid = int(f.read().strip())
+            # Same process already holds the lock (reloader + worker in same run)
+            if existing_pid == my_pid:
+                return True
+            # Check if the file is recent (within 5 minutes) — a stale file
+            # means the old process crashed. This avoids os.kill() which is
+            # unreliable on Windows (signal 0 not supported).
+            mtime = os.path.getmtime(_SCHEDULER_PID_FILE)
+            if time.time() - mtime < 300:
+                logger.debug(
+                    "Scheduler lock held by PID %d (%.0fs ago) — skipping",
+                    existing_pid, time.time() - mtime,
+                )
+                return False
+            # Stale — take over
+            os.remove(_SCHEDULER_PID_FILE)
+            return _acquire_scheduler_lock()
+        except (ValueError, OSError, ProcessLookupError):
+            try:
+                os.remove(_SCHEDULER_PID_FILE)
+            except OSError:
+                pass
+            return _acquire_scheduler_lock()
+    except OSError:
+        return False
 
 # Max join attempts before a pending group is marked inactive (blocked).
 MAX_JOIN_ATTEMPTS = 5
@@ -64,6 +117,18 @@ def _generate_night_briefs():
 
         for user in users:
             try:
+                # Idempotency check: Ensure only ONE Night Brief notification is created per user per day
+                today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                existing_brief = db.query(NotificationInbox).filter(
+                    NotificationInbox.user_id == user.id,
+                    NotificationInbox.notification_type == "NIGHT_BRIEF",
+                    NotificationInbox.created_at >= today_start,
+                ).first()
+
+                if existing_brief:
+                    logger.info(f"Night Brief already generated for user {user.id} today. Skipping duplicate.")
+                    continue
+
                 # Count upcoming deadlines
                 deadlines = db.query(AcademicEvent).filter(
                     AcademicEvent.user_id == user.id,
@@ -303,6 +368,9 @@ def start_scheduler():
     """
     global _scheduler
 
+    if not _acquire_scheduler_lock():
+        return
+
     if not HAS_APSCHEDULER:
         logger.warning("APScheduler not available — skipping scheduler startup")
         return
@@ -353,7 +421,7 @@ def start_scheduler():
     )
 
     _scheduler.start()
-    logger.info("Background scheduler started (reminder executor + night brief + join queue jobs)")
+    logger.info("Background scheduler started (reminder executor + night brief + join queue)")
 
 
 def stop_scheduler():
@@ -362,3 +430,8 @@ def stop_scheduler():
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
         logger.info("Background scheduler stopped")
+    try:
+        if os.path.exists(_SCHEDULER_PID_FILE):
+            os.remove(_SCHEDULER_PID_FILE)
+    except OSError:
+        pass

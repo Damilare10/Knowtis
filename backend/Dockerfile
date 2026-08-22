@@ -30,6 +30,7 @@ RUN apt-get update \
 # Install Python dependencies first to maximize layer caching.
 COPY requirements.txt ./
 RUN pip install --upgrade pip \
+    && pip install torch --index-url https://download.pytorch.org/whl/cpu \
     && pip install -r requirements.txt \
     && pip install psycopg2-binary pgvector
 

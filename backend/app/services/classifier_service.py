@@ -60,8 +60,66 @@ CATEGORY_MAP: Dict[ClassifierCategory, Tuple[Classification, EventCategory]] = {
 }
 
 
+def _exact_keyword_regex(words: Tuple[str, ...]) -> re.Pattern:
+    """Strict whole-word matcher, used for noise tokens.
+
+    Plain ``kw in text`` substring matching silently produced false positives:
+    ``"hi"`` matched inside ``"shifted"``, and the single-letter ``"k"`` matched
+    ``"kindly"``, ``"check"`` and ``"booked"``. That made
+    ``"The lecturer booked Hall A"`` score noise=2 / signal=1 and classify as
+    NOISE. Noise tokens are exact chat acknowledgements, so no suffix is
+    allowed — ``ok`` must not match ``booked``.
+    """
+    return re.compile(
+        r"\b(?:" + "|".join(re.escape(w) for w in words) + r")\b",
+        re.IGNORECASE,
+    )
+
+
+def _stem_keyword_regex(words: Tuple[str, ...]) -> re.Pattern:
+    """Prefix-anchored matcher, used for signal stems.
+
+    Signal words are content stems whose inflections carry the same meaning, so
+    a trailing suffix is desirable: ``lecture`` must match ``lecturer``,
+    ``cancel`` must match ``cancelled``/``cancellation``, ``assignment`` must
+    match ``assignments``. The leading ``\\b`` still prevents matching inside an
+    unrelated word.
+    """
+    return re.compile(
+        r"\b(?:" + "|".join(re.escape(w) for w in words) + r")\w*",
+        re.IGNORECASE,
+    )
+
+
+def _count_keywords(pattern: re.Pattern, text: str) -> int:
+    """Count DISTINCT keywords present, matching the original scoring semantics."""
+    return len({match.group(0).lower() for match in pattern.finditer(text)})
+
+
+_SIGNAL_KEYWORDS: Tuple[str, ...] = (
+    "assignment", "due", "quiz", "test", "exam", "class", "cancel",
+    "seminar", "workshop", "deadline", "venue", "move", "lecture",
+    "timetable", "schedul",
+    # Present in _RE_TEST / _RE_MOVED below but previously missing here, so
+    # "assessment shifted to Thursday" scored zero signal.
+    "assess", "shift",
+)
+
+# Emoji are handled separately: \b has no meaning next to a non-word character.
+_NOISE_EMOJI: Tuple[str, ...] = ("😂", "🤣", "😹")
+
+_NOISE_KEYWORDS: Tuple[str, ...] = (
+    "haha", "lol", "funny", "meme", "joke", "hey", "hello", "hi",
+    "whats up", "thanks", "noted", "ok", "k",
+)
+
+_RE_SIGNAL_KEYWORDS = _stem_keyword_regex(_SIGNAL_KEYWORDS)
+_RE_NOISE_KEYWORDS = _exact_keyword_regex(_NOISE_KEYWORDS)
+
+
 class MessageClassifier:
     """Service to classify incoming messages and calculate scoring metrics"""
+
 
     @staticmethod
     def category_to_classifier(category: str) -> ClassifierCategory:
@@ -130,32 +188,48 @@ class MessageClassifier:
         except Exception as exc:
             logger.warning("Semantic signal/noise classifier failed (%s); using fallback rules", exc)
 
-        text_lower = text.lower()
-        signal_keywords = [
-            "assignment", "due", "quiz", "test", "exam", "class", "cancel",
-            "seminar", "workshop", "deadline", "venue", "moved", "lecture",
-            "timetable", "schedule"
-        ]
-        noise_keywords = ["haha", "lol", "funny", "😂", "meme", "joke", "hey", "hello", "hi", "whats up"]
+        text_lower = text.lower().strip()
 
-        signal_score = sum(1 for kw in signal_keywords if kw in text_lower)
-        noise_score = sum(1 for kw in noise_keywords if kw in text_lower)
+        # Strict peer inquiries, borrowing requests, or casual chatter patterns
+        peer_inquiry_patterns = [
+            r"^(?:who\s+(?:has|have|is|knows)|has\s+anyone|anyone\s+(?:seen|have|knows|with)|can\s+someone|does\s+anyone)",
+            r"^(?:please\s+who|pls\s+who|where\s+(?:is|are|the)|are\s+we\s+having|is\s+there\s+any|is\s+class\s+holding)",
+            r"^(?:did\s+anyone|has\s+the\s+lecturer|any\s+update\s+on|good\s+morning|good\s+afternoon|good\s+evening)",
+            r"\b(?:i\s+need\s+to\s+borrow|borrow\s+(?:me\s+)?(?:the\s+)?(?:textbook|slides?|notes?|pdf|past\s+questions?))\b",
+            r"\b(?:who\s+has\s+the\s+textbook|anyone\s+seen\s+the\s+lecturer|seen\s+the\s+lecturer\?)\b",
+            r"\b(?:where\s+are\s+you\s+guys|are\s+you\s+guys\s+in\s+class|is\s+anyone\s+in\s+class)\b",
+        ]
+        is_peer_inquiry = any(re.search(p, text_lower) for p in peer_inquiry_patterns)
+        ends_in_question = text_lower.endswith("?")
+
+        # Definitive official announcement phrases that override general question marks
+        official_override_patterns = [
+            r"\b(?:assignment\s+is\s+due|deadline\s+is|submit\s+(?:by|before|on)|submission\s+link)\b",
+            r"\b(?:class\s+is\s+(?:cancelled|postponed|rescheduled|moved)|lecture\s+(?:is\s+)?(?:cancelled|postponed))\b",
+            r"\b(?:venue\s+(?:changed|is\s+now)|exam\s+timetable|test\s+scheduled\s+for)\b",
+        ]
+        has_official_announcement = any(re.search(p, text_lower) for p in official_override_patterns)
+
+        if (is_peer_inquiry or ends_in_question) and not has_official_announcement:
+            return Classification.NOISE, 0.92
+
+        signal_score = _count_keywords(_RE_SIGNAL_KEYWORDS, text_lower)
+        noise_score = _count_keywords(_RE_NOISE_KEYWORDS, text_lower)
+        noise_score += sum(1 for emoji in _NOISE_EMOJI if emoji in text_lower)
 
         # Look for course code patterns like ELE310 or CSC 401
         has_course_code = bool(re.search(r'[a-zA-Z]{3}\s?\d{3}', text))
-        if has_course_code:
-            signal_score += 2
+        if has_course_code and not is_peer_inquiry:
+            signal_score += 1
 
-        if signal_score > noise_score:
+        if signal_score > noise_score and signal_score >= 1:
             confidence = min(0.5 + 0.15 * signal_score, 0.99)
             return Classification.SIGNAL, confidence
         elif noise_score > signal_score:
             confidence = min(0.5 + 0.15 * noise_score, 0.99)
             return Classification.NOISE, confidence
         else:
-            if has_course_code:
-                return Classification.SIGNAL, 0.75
-            return Classification.NOISE, 0.60
+            return Classification.NOISE, 0.70
 
     # Regex matchers kept only as a fallback when semantic embeddings are
     # unavailable. The primary path should understand context, not exact words.

@@ -25,8 +25,20 @@ def _get_float(key: str, default: float) -> float:
         return default
 
 
+def _get_int(key: str, default: int) -> int:
+    try:
+        return int(os.getenv(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
 def _is_insecure_secret(value: str, default: str) -> bool:
     return not value or value == default or "CHANGE_ME" in value
+
+
+def _get_csv(key: str, default: str = "") -> list[str]:
+    raw = os.getenv(key, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 class Settings:
@@ -47,10 +59,7 @@ class Settings:
     google_client_secret: Optional[str] = os.getenv("GOOGLE_CLIENT_SECRET")
     backend_url: str = os.getenv("BACKEND_URL", "http://localhost:8000")
     frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
-
-    # ── Microsoft OAuth (Outlook calendar) ───────────────────────────────────
-    outlook_client_id: Optional[str] = os.getenv("OUTLOOK_CLIENT_ID")
-    outlook_client_secret: Optional[str] = os.getenv("OUTLOOK_CLIENT_SECRET")
+    cors_origins: list[str] = _get_csv("CORS_ORIGINS")
 
     # ── RevenueCat ────────────────────────────────────────────────────────────
     revenuecat_webhook_secret: Optional[str] = os.getenv("REVENUECAT_WEBHOOK_SECRET")
@@ -94,6 +103,15 @@ class Settings:
     ai_max_tokens: int = int(os.getenv("AI_MAX_TOKENS", "1024"))
     ai_free_daily_limit: int = int(os.getenv("AI_FREE_DAILY_LIMIT", "20"))
     ai_premium_daily_limit: int = int(os.getenv("AI_PREMIUM_DAILY_LIMIT", "200"))
+
+    # ── Agnes AI (primary classification + extraction) ──────────────────────────
+    agnes_enabled: bool
+    agnes_api_key: str
+    agnes_base_url: str
+    agnes_model: str = os.getenv("AGNES_MODEL", "agnes-2.0-flash")
+    agnes_request_timeout: float = float(os.getenv("AGNES_REQUEST_TIMEOUT", "15"))
+    batch_max_attempts: int = _get_int("BATCH_MAX_ATTEMPTS", 5)
+    batch_bisect_after: int = _get_int("BATCH_BISECT_AFTER", 3)
 
     # ── Premium Real-Time Alerts (push/DM channel) ────────────────────────────
     push_webhook_url: str = os.getenv("PUSH_WEBHOOK_URL", "")
@@ -166,8 +184,7 @@ class Settings:
         self.google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
         self.backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
         self.frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
-        self.outlook_client_id = os.getenv("OUTLOOK_CLIENT_ID")
-        self.outlook_client_secret = os.getenv("OUTLOOK_CLIENT_SECRET")
+        self.cors_origins = _get_csv("CORS_ORIGINS")
         self.revenuecat_webhook_secret = os.getenv("REVENUECAT_WEBHOOK_SECRET")
         self.similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", "0.75"))
         self.setfit_classifier_enabled = _get_bool("SETFIT_CLASSIFIER_ENABLED", True)
@@ -198,6 +215,13 @@ class Settings:
         self.ai_max_tokens = int(os.getenv("AI_MAX_TOKENS", "1024"))
         self.ai_free_daily_limit = int(os.getenv("AI_FREE_DAILY_LIMIT", "20"))
         self.ai_premium_daily_limit = int(os.getenv("AI_PREMIUM_DAILY_LIMIT", "200"))
+        self.agnes_api_key = os.getenv("AGNES_API_KEY", "")
+        self.agnes_base_url = os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1")
+        self.agnes_model = os.getenv("AGNES_MODEL", "agnes-2.0-flash")
+        self.agnes_request_timeout = float(os.getenv("AGNES_REQUEST_TIMEOUT", "15"))
+        self.agnes_enabled = bool(self.agnes_api_key)
+        self.batch_max_attempts = _get_int("BATCH_MAX_ATTEMPTS", 5)
+        self.batch_bisect_after = _get_int("BATCH_BISECT_AFTER", 3)
         self.push_webhook_url = os.getenv("PUSH_WEBHOOK_URL", "")
         self.push_webhook_enabled = _get_bool("PUSH_WEBHOOK_ENABLED", False)
         self.push_webhook_timeout_seconds = _get_float("PUSH_WEBHOOK_TIMEOUT_SECONDS", 5.0)
@@ -230,6 +254,10 @@ class Settings:
                 raise RuntimeError("JWT_SECRET_KEY must be set to a strong non-default value in production.")
             if _is_insecure_secret(self.refresh_token_secret, "SUPER_SECRET_REFRESH_KEY_CHANGE_ME"):
                 raise RuntimeError("REFRESH_TOKEN_SECRET must be set to a strong non-default value in production.")
+            if not self.cors_origins:
+                raise RuntimeError("CORS_ORIGINS must be set in production, for example: https://app.example.com")
+            if "*" in self.cors_origins:
+                raise RuntimeError("CORS_ORIGINS cannot include '*' in production.")
 
 
 settings = Settings()

@@ -9,7 +9,7 @@ agent gracefully falls back to the deterministic engine.
 
 import json
 import logging
-from typing import AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import httpx
 
@@ -44,12 +44,14 @@ class LLMService:
         tier: str = "premium",
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        tools: Optional[List[dict]] = None,
+        tool_choice: Optional[str] = None,
     ) -> str:
         """Return a complete (non-streamed) chat completion."""
         if not LLMService.is_available():
             raise RuntimeError("LLM service is not configured (GROQ_API_KEY missing)")
 
-        payload = {
+        payload: Dict[str, Any] = {
             "model": LLMService._model_for(tier),
             "messages": messages,
             "temperature": settings.ai_temperature
@@ -58,6 +60,11 @@ class LLMService:
             "max_tokens": settings.ai_max_tokens if max_tokens is None else max_tokens,
             "stream": False,
         }
+
+        if tools:
+            payload["tools"] = tools
+        if tool_choice:
+            payload["tool_choice"] = tool_choice
 
         async with httpx.AsyncClient(
             timeout=settings.ai_request_timeout

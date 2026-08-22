@@ -1,0 +1,128 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: knowtis-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: "8000"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      WHATSAPP_CONNECTOR_URL: http://whatsapp:3001
+    ports:
+      - "8000:8000"
+    volumes:
+      - knowtis_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: knowtis-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      WHATSAPP_CONNECTOR_URL: http://whatsapp:3001
+    volumes:
+      - knowtis_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: knowtis-beat
+    restart: unless-stopped
+    command: ["celery", "-A", "app.celery_app", "beat", "-l", "info"]
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      WHATSAPP_CONNECTOR_URL: http://whatsapp:3001
+    volumes:
+      - knowtis_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  whatsapp:
+    build:
+      context: ../whatsapp_connector
+      dockerfile: Dockerfile
+    container_name: knowtis-whatsapp
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      FASTAPI_WEBHOOK_URL: http://backend:8000/api/v1/whatsapp/webhook
+      WEBHOOK_SECRET: 10e6981254fd41e1f7953d8436d0661cbae112489aac21a282c7c41abafff03e
+      CONNECTOR_API_SECRET: 10e6981254fd41e1f7953d8436d0661cbae112489aac21a282c7c41abafff03e
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: knowtis-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    image: knowtis-frontend:latest
+    container_name: knowtis-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: knowtis-tunnel
+    restart: unless-stopped
+    user: root
+    command: tunnel --url http://frontend:3000 --logfile /app/tunnel.log
+    volumes:
+      - .:/app
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  knowtis_data:
+  redis_data:
+
+

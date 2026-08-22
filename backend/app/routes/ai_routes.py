@@ -24,9 +24,11 @@ from app.rate_limit import enforce_ai_quota, limiter
 from app.schemas import (
     AIQueryRequest, AIQueryResponse, AICitation, AIRetrievalInfo,
     ChatClearResponse, ChatHistoryResponse, ChatMessageResponse, ChatSendRequest,
+    ActionConfirmation,
 )
 from app.services.ai_agent_service import AIAgentService, RetrievalContext
 from app.services.llm_service import LLMService
+from app.services.ai_tools import AIToolEngine
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +167,7 @@ async def send_chat_message(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Send a user message and receive an AI reply (persisted)."""
+    """Send a user message and receive an AI reply (persisted). Supports tool-calling actions."""
     try:
         enforce_ai_quota(user)
         enforce_ai_token_limit(user)
@@ -183,12 +185,44 @@ async def send_chat_message(
     ctx = AIAgentService.retrieve(payload.message, user.id, db)
     use_llm = LLMService.is_available()
 
+    actions: list[ActionConfirmation] = []
+    answer = ""
+
     if use_llm:
         try:
             result = await AIAgentService.answer_premium(ctx, tier=tier)
-            answer = result["answer"]
-            
-            # Count received tokens
+            raw_answer = result["answer"]
+
+            if AIToolEngine.has_actions(raw_answer):
+                executed = []
+                for action in AIToolEngine.parse_actions(raw_answer):
+                    outcome = AIToolEngine.execute_action(
+                        action["name"], action["params"], user.id, db
+                    )
+                    executed.append({"name": action["name"], "params": action["params"], "outcome": outcome})
+
+                conversational = AIToolEngine.strip_actions(raw_answer).strip()
+
+                action_descriptions = []
+                for ex in executed:
+                    o = ex["outcome"]
+                    if o.get("success"):
+                        action_descriptions.append("\u2705 " + o.get("message", f"Action '{ex['name']}' completed."))
+                    else:
+                        action_descriptions.append("\u274c " + o.get("error", f"Action '{ex['name']}' failed."))
+
+                actions = [
+                    ActionConfirmation(tool=ex["name"], success=ex["outcome"].get("success", False), message=ex["outcome"].get("message", ""))
+                    for ex in executed
+                ]
+
+                if conversational:
+                    answer = conversational + "\n\n" + "\n".join(action_descriptions)
+                else:
+                    answer = "\n".join(action_descriptions)
+            else:
+                answer = raw_answer
+
             tokens_received = max(1, len(answer) // 4)
             user.ai_tokens_received += tokens_received
             db.commit()
@@ -199,7 +233,8 @@ async def send_chat_message(
         answer = AIAgentService.compose_deterministic(ctx)["answer"]
 
     reply = ChatMessage(
-        user_id=user.id, role="assistant", content=answer, day=datetime.utcnow().date()
+        user_id=user.id, role="assistant", content=answer, day=datetime.utcnow().date(),
+        meta={"actions": [a.model_dump() for a in actions]} if actions else None,
     )
     db.add(reply)
     db.commit()
@@ -209,6 +244,7 @@ async def send_chat_message(
         id=str(reply.id), role=reply.role, content=reply.content,
         day=reply.day.isoformat() if reply.day else None,
         created_at=reply.created_at.isoformat() if reply.created_at else None,
+        actions=actions if actions else None,
     )
 
 
@@ -232,6 +268,9 @@ async def get_chat_history(
                 id=str(m.id), role=m.role, content=m.content,
                 day=m.day.isoformat() if m.day else None,
                 created_at=m.created_at.isoformat() if m.created_at else None,
+                actions=[
+                    ActionConfirmation(**a) for a in m.meta["actions"]
+                ] if m.meta and isinstance(m.meta, dict) and m.meta.get("actions") else None,
             )
             for m in msgs
         ]
@@ -251,3 +290,55 @@ async def clear_chat(
     )
     db.commit()
     return ChatClearResponse(deleted=deleted)
+
+
+@router.post("/agent")
+@limiter.limit("60/minute")
+async def run_langgraph_agent_route(
+    payload: AIQueryRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Run the Agnes LangGraph Multi-Agent workflow for student academic requests."""
+    try:
+        enforce_ai_quota(user)
+        enforce_ai_token_limit(user)
+    except HTTPException:
+        raise
+
+    try:
+        try:
+            from langgraph_agent import run_knowtis_agent
+        except ImportError:
+            from app.services.langgraph_agent import run_knowtis_agent
+
+        thread_id = f"user_{user.id}"
+        result = run_knowtis_agent(
+            query=payload.query,
+            user_id=str(user.id),
+            course_code=payload.course_code,
+            thread_id=thread_id,
+        )
+        tier = get_user_tier(user)
+
+        # Token counting
+        answer_text = result.get("answer", "")
+        tokens_received = max(1, len(answer_text) // 4)
+        user.ai_tokens_received += tokens_received
+        db.commit()
+
+        return {
+            "query": payload.query,
+            "answer": answer_text,
+            "tier": tier,
+            "mode": "langgraph_multi_agent",
+            "actions_executed": result.get("actions_executed", []),
+        }
+    except Exception as exc:
+        logger.error(f"LangGraph multi-agent execution error: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"LangGraph Agent execution failed: {str(exc)}",
+        )
+
