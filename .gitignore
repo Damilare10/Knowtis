@@ -74,3 +74,17 @@ Thumbs.db
 frontend/android/
 frontend/.env.production
 frontend/.playwright-cli/
+
+# Local ops scripts and notes that embed production credentials.
+# These hold a plaintext SSH password for the deployment host — never commit
+# them. Rotate the credential and move it to an env var / secret store.
+VPS_ACCESS.md
+vps_backend_url.txt
+/*vps*.py
+/diag_whatsapp.py
+/get_tunnel.py
+
+# Build/deploy artifacts
+*.apk
+*.tar.gz
+frontend/tsc_output.txt
