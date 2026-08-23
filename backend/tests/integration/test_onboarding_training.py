@@ -84,3 +84,34 @@ def test_training_feedback_flow(client, test_user_data, db):
     response = client.get("/api/v1/training/predictions", headers=headers)
     assert response.status_code == 200
     assert response.json()["items"][0]["needs_review"] is False
+
+
+def test_training_feedback_via_academic_event_id(client, test_user_data, db):
+    """Test feedback endpoint directly accepting academic_event_id and clearing event needs_review"""
+    from app.models import AcademicEvent
+    from uuid import UUID
+    reg_response = client.post("/api/v1/auth/register", json=test_user_data)
+    token = reg_response.json()["access_token"]
+    user_id = UUID(reg_response.json()["user"]["id"])
+    headers = {"Authorization": f"Bearer {token}"}
+
+    event = AcademicEvent(
+        user_id=user_id,
+        event_type="DEADLINE",
+        title="CSC301 Project Review",
+        needs_review=True,
+        confidence_score=0.75,
+    )
+    db.add(event)
+    db.commit()
+
+    feedback_data = {
+        "academic_event_id": str(event.id),
+        "feedback_type": "confirmed_correct"
+    }
+    response = client.post("/api/v1/training/feedback", json=feedback_data, headers=headers)
+    assert response.status_code == 201
+
+    db.refresh(event)
+    assert event.needs_review is False
+

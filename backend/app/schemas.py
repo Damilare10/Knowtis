@@ -138,10 +138,21 @@ class AcademicEventCreate(AcademicEventBase):
     pass
 
 
+class AcademicEventUpdate(_KnowtisBaseModel):
+    title: Optional[str] = None
+    course_code: Optional[str] = None
+    date_time: Optional[datetime] = None
+    venue: Optional[str] = None
+    event_type: Optional[EventType] = None
+
+
 class AcademicEventResponse(AcademicEventBase):
     id: UUID
     user_id: UUID
     group_id: Optional[UUID] = None
+    group_name: Optional[str] = None
+    status: Optional[str] = "ACTIVE"
+    date_precision: Optional[str] = "unknown"
     reminder_state: ReminderState
     urgency_score: float
     confidence_score: float
@@ -153,6 +164,7 @@ class AcademicEventResponse(AcademicEventBase):
     source_message_id: Optional[str] = None
     source_group_jid: Optional[str] = None
     is_archived: bool
+    revisions: Optional[List[Any]] = None
     created_at: datetime
     updated_at: datetime
 
@@ -163,8 +175,10 @@ class AcademicEventResponse(AcademicEventBase):
 class AcademicEventListResponse(_KnowtisBaseModel):
     items: List[AcademicEventResponse]
     total: int
-    skip: int
-    limit: int
+    skip: int = 0
+    limit: int = 20
+    truncated: bool = False
+    plan_limit: Optional[int] = None
 
 
 class SemanticSearchResponse(_KnowtisBaseModel):
@@ -406,7 +420,8 @@ class PredictionRecordListResponse(_KnowtisBaseModel):
 
 
 class TrainingFeedbackCreate(_KnowtisBaseModel):
-    prediction_id: UUID
+    prediction_id: Optional[UUID] = None
+    academic_event_id: Optional[UUID] = None
     feedback_type: FeedbackType
     corrected_category: Optional[str] = None
     corrected_course_code: Optional[str] = None

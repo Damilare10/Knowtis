@@ -62,31 +62,6 @@ def _strip_calendar_command_text(message_text: str) -> str:
     return clean_msg.strip(": \t\n\r")
 
 
-def _urgency_view(event, date_precision=None):
-    """Duck-typed view of an event for :func:`compute_urgency`.
-
-    ``date_precision`` is resolved by ``TemporalParser`` and travels in the
-    extracted payload, but ``AcademicEvent`` has no column for it until step 5.
-    Scoring through this view lets a DAY_ONLY date be treated as end-of-day,
-    instead of reading as due 00:00 and over-scoring by nearly a full day.
-
-    ``status`` is read with ``getattr`` for the same reason: the column arrives
-    with step 5, and once it does a cancelled event scores 0.0 automatically.
-
-    TODO(step-5): once ``AcademicEvent.date_precision`` and ``status`` exist,
-    persist the resolved precision on the row and score the instance directly.
-    """
-    if date_precision is None:
-        date_precision = getattr(event, "date_precision", None)
-    return SimpleNamespace(
-        event_type=event.event_type,
-        date_time=event.date_time,
-        confidence_score=event.confidence_score,
-        date_precision=date_precision,
-        status=getattr(event, "status", None),
-    )
-
-
 def _run_async(coro):
     """Run a coroutine from a synchronous Celery task context."""
     try:
@@ -551,9 +526,13 @@ def process_message_batch(group_id: str, message_ids: list[str] | None = None):
     against each other.
     """
     import uuid as _uuid
+    from sqlalchemy.exc import IntegrityError
     from app.config import settings
     from app.database import SessionLocal
-    from app.models import WhatsAppGroup, RawMessage, AcademicEvent, EventType, ProcessingStatus
+    from app.models import (
+        WhatsAppGroup, RawMessage, AcademicEvent, EventType, ProcessingStatus,
+        EventStatus, EventDatePrecision
+    )
     from app.services.event_extraction_service import EventExtractionService
     from app.services.deduplication_service import DeduplicationService
     from app.services.notification_service import NotificationService
@@ -741,6 +720,7 @@ def process_message_batch(group_id: str, message_ids: list[str] | None = None):
             return "all_noise"
 
         processed_total = 0
+        raw_event_counts = {}
 
         # Map the 1-based index Agnes returns back to the source message, and
         # validate hard: a dropped or renumbered index would otherwise silently
@@ -774,6 +754,9 @@ def process_message_batch(group_id: str, message_ids: list[str] | None = None):
                 )
                 src_raw = unprocessed[0]
 
+            event_idx = raw_event_counts.get(src_raw.id, 0)
+            raw_event_counts[src_raw.id] = event_idx + 1
+
             # Route through reconcile_event — never a bare db.add()
             reconciled_event, outcome = DeduplicationService.reconcile_event(
                 user_id=group.user_id,
@@ -787,15 +770,10 @@ def process_message_batch(group_id: str, message_ids: list[str] | None = None):
 
             if outcome in ("UPDATED", "CANCELLED") and reconciled_event:
                 # Urgency depends on date_time, which an UPDATE may have moved.
-                # Only pass the incoming precision when the payload actually
-                # carried a date: otherwise the row kept its original date_time
-                # and the incoming precision does not describe it.
-                reconciled_event.urgency_score = compute_urgency(
-                    _urgency_view(
-                        reconciled_event,
-                        event_data.get("date_precision") if event_data.get("date_time") else None,
-                    )
-                )
+                if event_data.get("date_precision") and event_data.get("date_time"):
+                    reconciled_event.date_precision = event_data["date_precision"]
+                reconciled_event.urgency_score = compute_urgency(reconciled_event)
+                
                 # Notify on mutation
                 if not reconciled_event.needs_review:
                     NotificationService.dispatch_alert(
@@ -829,17 +807,28 @@ def process_message_batch(group_id: str, message_ids: list[str] | None = None):
                 needs_review=bool(event_data.get("needs_review", True)),
                 embedding=json.dumps(embedding) if embedding else None,
                 source_message_id=src_raw.message_id,
+                source_raw_message_id=src_raw.id,
+                event_index=event_idx,
+                date_precision=event_data.get("date_precision") or EventDatePrecision.UNKNOWN,
+                status=EventStatus.ACTIVE,
                 source_group_jid=group.group_jid,
             )
-            # Urgency is DERIVED from time-to-deadline, never taken from the
-            # model or from keyword presence. Scored through _urgency_view so the
-            # resolved date_precision is honoured even though AcademicEvent has
-            # no column for it yet.
-            academic_event.urgency_score = compute_urgency(
-                _urgency_view(academic_event, event_data.get("date_precision"))
-            )
-            db.add(academic_event)
-            db.flush()
+            academic_event.urgency_score = compute_urgency(academic_event)
+            try:
+                # SAVEPOINT, not a bare db.rollback(). A collision on THIS event
+                # must not discard events already flushed earlier in the same
+                # batch: every message in the batch is marked ai_processed at the
+                # end regardless, so anything lost here is lost permanently and
+                # is never retried.
+                with db.begin_nested():
+                    db.add(academic_event)
+                    db.flush()
+            except IntegrityError as exc:
+                logger.warning(
+                    "Duplicate event constraint caught on create (user=%s, raw_message=%s, index=%d): %s",
+                    group.user_id, src_raw.id, event_idx, exc,
+                )
+                continue
 
             # Gate notifications/reminders on needs_review
             if not academic_event.needs_review:

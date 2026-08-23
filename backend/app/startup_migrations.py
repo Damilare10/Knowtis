@@ -24,10 +24,8 @@ _NEW_PROCESSING_STATUSES = (
 
 
 def _migrate_academic_events(engine: Engine, inspector) -> None:
-    """Add ``needs_review`` to academic_events.
-
-    The column is read and written by the reply / sliding-window context-recovery
-    branch, which previously raised ``AttributeError`` at query build time.
+    """Add ``needs_review``, ``status``, ``superseded_by_id``, ``date_precision``,
+    ``source_raw_message_id``, ``event_index``, ``revisions``, and pgvector to academic_events.
     """
     try:
         columns = {row["name"] for row in inspector.get_columns("academic_events")}
@@ -35,29 +33,96 @@ def _migrate_academic_events(engine: Engine, inspector) -> None:
         logger.warning("Could not inspect table 'academic_events': %s", exc)
         return
 
-    if "needs_review" in columns:
-        return
+    is_postgres = engine.dialect.name != "sqlite"
 
-    logger.info("Running startup migration: adding academic_events.needs_review")
     try:
         with engine.connect() as conn:
-            if engine.dialect.name == "sqlite":
-                conn.execute(text(
-                    "ALTER TABLE academic_events ADD COLUMN needs_review BOOLEAN DEFAULT 1 NOT NULL"
-                ))
-                conn.execute(text(
-                    "CREATE INDEX IF NOT EXISTS ix_academic_events_needs_review "
-                    "ON academic_events (needs_review)"
-                ))
+            # 1. needs_review
+            if "needs_review" not in columns:
+                logger.info("Running startup migration: adding academic_events.needs_review")
+                if not is_postgres:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN needs_review BOOLEAN DEFAULT 1 NOT NULL"))
+                else:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN IF NOT EXISTS needs_review BOOLEAN DEFAULT TRUE NOT NULL"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_academic_events_needs_review ON academic_events (needs_review)"))
+
+            # 2. PostgreSQL enums
+            if is_postgres:
+                conn.execute(text("DO $$ BEGIN CREATE TYPE eventstatus AS ENUM ('ACTIVE', 'CANCELLED', 'SUPERSEDED'); EXCEPTION WHEN duplicate_object THEN null; END $$;"))
+                conn.execute(text("DO $$ BEGIN CREATE TYPE eventdateprecision AS ENUM ('exact', 'day_only', 'unknown'); EXCEPTION WHEN duplicate_object THEN null; END $$;"))
+
+            # 3. status
+            if "status" not in columns:
+                logger.info("Running startup migration: adding academic_events.status")
+                if not is_postgres:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN status VARCHAR(20) DEFAULT 'ACTIVE' NOT NULL"))
+                else:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN IF NOT EXISTS status eventstatus DEFAULT 'ACTIVE' NOT NULL"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_academic_events_status ON academic_events (status)"))
+
+            # 4. superseded_by_id
+            if "superseded_by_id" not in columns:
+                logger.info("Running startup migration: adding academic_events.superseded_by_id")
+                if not is_postgres:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN superseded_by_id VARCHAR(36)"))
+                else:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN IF NOT EXISTS superseded_by_id UUID REFERENCES academic_events(id) ON DELETE SET NULL"))
+
+            # 5. date_precision
+            if "date_precision" not in columns:
+                logger.info("Running startup migration: adding academic_events.date_precision")
+                if not is_postgres:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN date_precision VARCHAR(20) DEFAULT 'unknown' NOT NULL"))
+                else:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN IF NOT EXISTS date_precision eventdateprecision DEFAULT 'unknown' NOT NULL"))
+
+            # 6. source_raw_message_id
+            if "source_raw_message_id" not in columns:
+                logger.info("Running startup migration: adding academic_events.source_raw_message_id")
+                if not is_postgres:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN source_raw_message_id VARCHAR(36)"))
+                else:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN IF NOT EXISTS source_raw_message_id UUID REFERENCES raw_messages(id) ON DELETE SET NULL"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_academic_events_source_raw_message_id ON academic_events (source_raw_message_id)"))
+
+            # 7. event_index
+            if "event_index" not in columns:
+                logger.info("Running startup migration: adding academic_events.event_index")
+                if not is_postgres:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN event_index INTEGER DEFAULT 0 NOT NULL"))
+                else:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN IF NOT EXISTS event_index INTEGER DEFAULT 0 NOT NULL"))
+
+            # 8. revisions
+            if "revisions" not in columns:
+                logger.info("Running startup migration: adding academic_events.revisions")
+                if not is_postgres:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN revisions JSON DEFAULT '[]'"))
+                else:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN IF NOT EXISTS revisions JSONB DEFAULT '[]'::jsonb"))
+
+            # 9. Business key index
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_business_key ON academic_events (user_id, course_code, event_type, date_time)"))
+
+            # 10. Unique constraint uq_event_source
+            if not is_postgres:
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_event_source ON academic_events (user_id, source_raw_message_id, event_index)"))
             else:
-                conn.execute(text(
-                    "ALTER TABLE academic_events ADD COLUMN IF NOT EXISTS needs_review "
-                    "BOOLEAN DEFAULT TRUE NOT NULL"
-                ))
-                conn.execute(text(
-                    "CREATE INDEX IF NOT EXISTS ix_academic_events_needs_review "
-                    "ON academic_events (needs_review)"
-                ))
+                conn.execute(text("""
+                    DO $$ BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_event_source') THEN
+                            ALTER TABLE academic_events ADD CONSTRAINT uq_event_source UNIQUE (user_id, source_raw_message_id, event_index);
+                        END IF;
+                    END $$;
+                """))
+
+            # 11. pgvector on PostgreSQL
+            if is_postgres:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                if "embedding_vec" not in columns:
+                    conn.execute(text("ALTER TABLE academic_events ADD COLUMN IF NOT EXISTS embedding_vec vector(384);"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_academic_events_embedding_vec_hnsw ON academic_events USING hnsw (embedding_vec vector_cosine_ops);"))
+
             conn.commit()
     except Exception as exc:
         logger.warning("Could not migrate table 'academic_events': %s", exc)

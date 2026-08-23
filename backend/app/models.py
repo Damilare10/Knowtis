@@ -5,7 +5,7 @@ Comprehensive database schema with validation
 
 from sqlalchemy import (
     Column, String, Text, Boolean, DateTime, Date, Float, Integer, ForeignKey,
-    JSON, Enum as SQLEnum, Index, func
+    JSON, Enum as SQLEnum, Index, UniqueConstraint, func
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB as PG_JSONB
 from sqlalchemy.orm import relationship
@@ -164,6 +164,20 @@ class WhatsAppGroup(Base):
     )
 
 
+class EventStatus(str, Enum):
+    """Academic event lifecycle status"""
+    ACTIVE = "ACTIVE"
+    CANCELLED = "CANCELLED"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class EventDatePrecision(str, Enum):
+    """Precision of the resolved date/time on the academic event"""
+    EXACT = "exact"
+    DAY_ONLY = "day_only"
+    UNKNOWN = "unknown"
+
+
 class AcademicEvent(Base):
     """Extracted Academic Events"""
     __tablename__ = "academic_events"
@@ -188,10 +202,28 @@ class AcademicEvent(Base):
     # reminders/notifications and marks the row as a candidate for the sliding-window
     # context-recovery pass in ``process_incoming_message_task``.
     needs_review = Column(Boolean, default=True, nullable=False, index=True)
-    embedding = Column(String)  # Vector embedding stored as string (to be indexed with pgvector)
-    source_message_id = Column(String(255))
+    embedding = Column(String)  # Vector embedding stored as JSON string (legacy / SQLite fallback)
+    source_message_id = Column(String(255))  # WhatsApp message ID string (kept for backward compatibility)
     source_group_jid = Column(String(255))
     is_archived = Column(Boolean, default=False)
+    
+    # Step 5 Schema additions
+    status = Column(
+        SQLEnum(EventStatus, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        default=EventStatus.ACTIVE,
+        nullable=False,
+        index=True
+    )
+    superseded_by_id = Column(UUID(as_uuid=True), ForeignKey("academic_events.id", ondelete="SET NULL"), nullable=True)
+    date_precision = Column(
+        SQLEnum(EventDatePrecision, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        default=EventDatePrecision.UNKNOWN,
+        nullable=False
+    )
+    source_raw_message_id = Column(UUID(as_uuid=True), ForeignKey("raw_messages.id", ondelete="SET NULL"), nullable=True, index=True)
+    event_index = Column(Integer, default=0, nullable=False)
+    revisions = Column(JSON, default=list)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -200,6 +232,13 @@ class AcademicEvent(Base):
     group = relationship("WhatsAppGroup", back_populates="academic_events")
     reminders = relationship("Reminder", back_populates="event", cascade="all, delete-orphan")
     notifications = relationship("NotificationInbox", back_populates="event")
+    superseded_by = relationship("AcademicEvent", remote_side=[id], foreign_keys=[superseded_by_id])
+    source_raw_message = relationship("RawMessage", foreign_keys=[source_raw_message_id])
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "source_raw_message_id", "event_index", name="uq_event_source"),
+        Index("ix_events_business_key", "user_id", "course_code", "event_type", "date_time"),
+    )
 
 
 class RawMessage(Base):

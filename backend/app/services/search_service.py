@@ -8,7 +8,7 @@ import json
 from typing import List, Tuple, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.models import AcademicEvent
+from app.models import AcademicEvent, EventStatus
 from app.utils import generate_embedding, calculate_similarity
 from app.config import settings
 
@@ -56,11 +56,12 @@ class SearchService:
                            is_archived, created_at, updated_at, similarity
                     FROM (
                         SELECT *,
-                               (1.0 - (CAST(embedding AS vector) <=> CAST(:query_vector AS vector))) AS similarity
+                               (1.0 - (COALESCE(embedding_vec, CAST(embedding AS vector)) <=> CAST(:query_vector AS vector))) AS similarity
                         FROM academic_events
                         WHERE user_id = :user_id
                           AND is_duplicate = False
                           AND is_archived = False
+                          AND status <> 'SUPERSEDED'
                     ) AS scored
                     WHERE similarity >= :threshold
                     ORDER BY similarity DESC
@@ -110,7 +111,11 @@ class SearchService:
         events = db.query(AcademicEvent).filter(
             AcademicEvent.user_id == user_id,
             AcademicEvent.is_duplicate == False,
-            AcademicEvent.is_archived == False
+            AcademicEvent.is_archived == False,
+            # A superseded row has been replaced; its successor carries the
+            # current truth. Leaking it here would let the AI catch-up agent
+            # cite a stale date as if it were live. Matches the list endpoint.
+            AcademicEvent.status != EventStatus.SUPERSEDED,
         ).all()
 
         matches = []

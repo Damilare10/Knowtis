@@ -372,3 +372,120 @@ def test_reminder_cycle_still_fires_reminders_when_urgency_refresh_fails(db, gro
 
     mock_recompute.assert_called()
     mock_pending.assert_called_once()
+
+
+# -- Wave 2.5: source_raw_message_id, event_index, duplicate constraint -------
+
+def test_writer_populates_source_raw_message_id_and_event_index(db, group):
+    """The writer must populate source_raw_message_id and index events per source message (0, 1...)."""
+    m1 = _add_message(db, group, "CSC301 announcement with two deliverables")
+
+    events = [
+        _event(title="CSC301 Project Part 1", date_time=datetime.utcnow() + timedelta(days=2), _source_index=1),
+        _event(title="CSC301 Project Part 2", date_time=datetime.utcnow() + timedelta(days=9), _source_index=1),
+    ]
+
+    with patch(
+        "app.services.event_extraction_service.EventExtractionService.extract_batch_via_agnes",
+        return_value=events,
+    ):
+        with patch("app.services.notification_service.NotificationService.send_event_notification"):
+            with patch("app.services.reminder_service.ReminderService.schedule_automatic_reminders"):
+                result = process_message_batch(str(group.id))
+
+    assert result == "processed_2_events"
+    saved = db.query(AcademicEvent).filter(AcademicEvent.source_raw_message_id == m1.id).order_by(AcademicEvent.event_index.asc()).all()
+    assert len(saved) == 2
+    assert saved[0].event_index == 0
+    assert saved[0].title == "CSC301 Project Part 1"
+    assert saved[0].source_raw_message_id == m1.id
+    assert saved[0].source_message_id == m1.message_id
+    assert saved[1].event_index == 1
+    assert saved[1].title == "CSC301 Project Part 2"
+    assert saved[1].source_raw_message_id == m1.id
+
+
+def test_reprocessing_same_message_creates_no_second_row(db, group):
+    """Reprocessing the exact same message and event index is safely caught and creates no duplicate rows."""
+    m1 = _add_message(db, group, "CSC301 Quiz tomorrow")
+
+    events = [_event(title="CSC301 Quiz tomorrow", _source_index=1)]
+
+    with patch(
+        "app.services.event_extraction_service.EventExtractionService.extract_batch_via_agnes",
+        return_value=events,
+    ):
+        with patch("app.services.notification_service.NotificationService.send_event_notification"):
+            with patch("app.services.reminder_service.ReminderService.schedule_automatic_reminders"):
+                process_message_batch(str(group.id))
+
+    count_before = db.query(AcademicEvent).filter(AcademicEvent.source_raw_message_id == m1.id).count()
+    assert count_before == 1
+
+    # Reset ai_processed to simulate a retry / duplicate worker execution on the same row
+    m1.ai_processed = False
+    db.commit()
+
+    with patch(
+        "app.services.event_extraction_service.EventExtractionService.extract_batch_via_agnes",
+        return_value=events,
+    ):
+        with patch("app.services.notification_service.NotificationService.send_event_notification"):
+            with patch("app.services.reminder_service.ReminderService.schedule_automatic_reminders"):
+                process_message_batch(str(group.id))
+
+    count_after = db.query(AcademicEvent).filter(AcademicEvent.source_raw_message_id == m1.id).count()
+    assert count_after == 1, "Reprocessing a message must never create a second row"
+
+
+def test_collision_on_one_event_does_not_destroy_the_others(db, group):
+    """The real call site is a batch of many messages, not a batch of one.
+
+    A single-event batch cannot detect this: when the constraint fires there is
+    nothing else pending to lose. Here event A (message 1) is brand new and
+    event B (message 2) collides with an existing row. Handling the collision
+    with a bare ``db.rollback()`` discards A too -- and both messages are still
+    marked ai_processed at the end of the batch, so A is never retried and the
+    announcement is gone. The insert must be wrapped in a SAVEPOINT instead.
+    """
+    from app.models import EventStatus
+
+    m1 = _add_message(db, group, "AAA111 assignment one is due next week")
+    m2 = _add_message(db, group, "BBB222 practical session has been scheduled")
+
+    # Occupy (user, m2.id, index 0). Deliberately unrelated in content so the
+    # dedup pass cannot claim it and short-circuit before the insert.
+    db.add(AcademicEvent(
+        user_id=group.user_id,
+        group_id=group.id,
+        event_type="INFO",
+        course_code="ZZZ999",
+        title="Totally unrelated placeholder row",
+        source_raw_message_id=m2.id,
+        event_index=0,
+        status=EventStatus.ACTIVE,
+        confidence_score=0.9,
+    ))
+    db.commit()
+
+    events = [
+        _event(title="AAA111 assignment one", course_code="AAA111", _source_index=1),
+        _event(title="BBB222 practical", course_code="BBB222", _source_index=2),
+    ]
+
+    with patch(
+        "app.services.event_extraction_service.EventExtractionService.extract_batch_via_agnes",
+        return_value=events,
+    ):
+        with patch("app.services.notification_service.NotificationService.send_event_notification"):
+            with patch("app.services.reminder_service.ReminderService.schedule_automatic_reminders"):
+                process_message_batch(str(group.id))
+
+    survived = db.query(AcademicEvent).filter(
+        AcademicEvent.source_raw_message_id == m1.id
+    ).all()
+    assert len(survived) == 1, (
+        "the event from message 1 was destroyed by the collision on message 2"
+    )
+    assert survived[0].title == "AAA111 assignment one"
+
