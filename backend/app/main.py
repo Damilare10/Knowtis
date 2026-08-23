@@ -103,17 +103,6 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Auto-seeding default admin skipped/failed: %s", exc)
 
-    if settings.semantic_prewarm_enabled:
-        # Pre-warm the semantic event-type classifier so the first WhatsApp
-        # message does not pay the MiniLM embedding cost on the critical path.
-        try:
-            from app.services.semantic_classifier import prewarm
-            prewarm()
-        except Exception as exc:
-            logger.warning("Semantic classifier prewarm failed: %s", exc)
-    else:
-        logger.info("Semantic classifier prewarm disabled")
-
     # Start background scheduler
     from app.scheduler import start_scheduler
     start_scheduler()

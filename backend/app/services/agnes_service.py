@@ -28,9 +28,9 @@ EXTRACTION_SYSTEM_PROMPT = (
     '      "title": "Concise info card title (max 80 chars)",\n'
     '      "description": "Extracted event details with context",\n'
     '      "venue": "Location" or null,\n'
-    '      "date_time": "ISO-8601 UTC datetime string" or null,\n'
+    '      "date_expression": "the temporal phrase EXACTLY as written in the message, e.g. \'next friday 2pm\', \'tomorrow\', \'30th\'" or null,\n'
+    '      "date_is_explicit": true if the message states a date or day, false for vague wording like "soon",\n'
     '      "lecturer": "Lecturer name" or null,\n'
-    '      "urgency_score": float 0.0-1.0,\n'
     '      "confidence_score": float 0.0-1.0,\n'
     '      "relevance_score": float 0.0-1.0,\n'
     '      "actionability_score": float 0.0-1.0,\n'
@@ -42,12 +42,14 @@ EXTRACTION_SYSTEM_PROMPT = (
     "STRICT RULES:\n"
     "1. Greetings, jokes, memes, casual chat, student questions/inquiries (e.g. 'who has the textbook', 'has anyone seen the lecturer', 'can someone send slides', 'are we having class'), textbook/material borrowing requests, noted, ok, lol -> classification=NOISE, events=[]. A valid SIGNAL MUST be an actionable announcement, schedule update, test/exam, or assignment deadline, NOT a student question.\n"
     "2. action_type is REQUIRED on every event: 'CREATE' for new events/deadlines, 'UPDATE' for changes in venue/time/deadline extension, or 'CANCEL' for cancellations. It decides whether an existing card is patched or cancelled instead of a duplicate being created, so never omit it.\n"
-    "3. Messages about assignments, exams, lecture changes, timetable updates -> classification=SIGNAL.\n"
-    "4. Single messages may contain MULTIPLE distinct events (e.g. an assignment deadline AND a class cancellation). "
+    "2. Messages about assignments, exams, lecture changes, timetable updates -> classification=SIGNAL.\n"
+    "3. Single messages may contain MULTIPLE distinct events (e.g. an assignment deadline AND a class cancellation). "
     "Extract EVERY valid event as an entry inside the `events` array.\n"
-    "5. Use the explicit Day of Week and date from the reference timestamp anchor to resolve relative dates "
-    "(e.g. 'tomorrow', 'this Friday', 'next Tuesday') into ISO-8601 UTC. Default missing time to 09:00:00 UTC.\n"
-    "6. Normalize course codes: uppercase, no spaces (e.g. csc 301 -> CSC301).\n"
+    "4. DO NOT compute, resolve, or convert dates. Copy the temporal phrase verbatim into date_expression "
+    "('tomorrow', 'next friday 2pm', 'by the 30th'). Date resolution happens downstream against the message's own "
+    "timestamp. Never output an ISO date and never guess a time that the message does not state.\n"
+    "5. Normalize course codes: uppercase, no spaces (e.g. csc 301 -> CSC301).\n"
+    "6. Do NOT output urgency_score; urgency is computed downstream from the deadline.\n"
     "7. Return ONLY valid JSON."
 )
 
@@ -73,7 +75,9 @@ class AgnesService:
         "  ]\n"
         "}\n\n"
         "STRICT RULES:\n"
-        "1. Return ONE item per message matching its index.\n"
+        "1. Return ONE item per message. The `index` field is REQUIRED on every item and MUST equal the "
+        "message number exactly as given. Never renumber, never omit it, never merge two messages into one item "
+        "-- the index is how each extracted event is attributed back to its source message.\n"
         "2. If NOISE (casual chat, student questions like 'who has textbook', 'has anyone seen lecturer', material requests, greetings), classification=NOISE and events=[].\n"
         "3. If SIGNAL (official class announcement, assignment deadline, exam/quiz, venue change), extract ALL distinct academic events into the `events` array.\n"
         "4. Every event object MUST include \"action_type\": \"CREATE\" for a newly announced "
@@ -81,9 +85,13 @@ class AgnesService:
         "moved, venue change, deadline extended), or \"CANCEL\" when an existing event is "
         "cancelled, called off, or will no longer hold. This field decides whether an existing "
         "card is patched or cancelled instead of a duplicate being created, so never omit it.\n"
-        "5. Use the explicit Day of Week and date anchor to calculate relative datetimes accurately.\n"
+        "5. DO NOT compute or resolve dates. Put the temporal phrase EXACTLY as written into "
+        "\"date_expression\" ('tomorrow', 'next friday 2pm', 'by the 30th') and set "
+        "\"date_is_explicit\" true only when the message names a date or day. Resolution happens "
+        "downstream against each message's own timestamp. Never output an ISO date.\n"
         "6. Normalize course codes: 3-4 letters + 3-4 digits, no spaces, uppercase (e.g. CSC301).\n"
-        "7. Return ONLY valid JSON."
+        "7. Do NOT output urgency_score; urgency is computed downstream from the deadline.\n"
+        "8. Return ONLY valid JSON."
     )
 
     @staticmethod

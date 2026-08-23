@@ -1,23 +1,21 @@
 """
 Event Extraction Service
-Extracts conservative academic event candidates from natural language text.
 
-Supports both single-event and multi-event extraction per message via Agnes AI with structured outputs.
+Wraps Agnes batch extraction results into the standardized event dict consumed
+by the single batch writer (``app.tasks.process_message_batch``).
+
+Dates are NOT resolved by the model: Agnes returns the temporal phrase as
+written and ``TemporalParser.resolve`` does the arithmetic against each
+message's own timestamp, so resolution is deterministic, testable and auditable.
 """
-import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 from sqlalchemy.orm import Session
 
-from app.config import settings
-from app.services.classifier_service import MessageClassifier, ClassifierCategory, EventCategory, CATEGORY_MAP
-from app.services.ner_service import NERService
-from app.services.temporal_parser import TemporalParser
-from app.services.llm_service import LLMService
-from app.services.confidence_scorer import ConfidenceScorer
+from app.services.temporal_parser import DatePrecision, TemporalParser
 
 logger = logging.getLogger(__name__)
 
@@ -79,180 +77,6 @@ class EventExtractionService:
 
         return cleaned
 
-    @staticmethod
-    def extract_events(
-        text: str,
-        db: Optional[Session] = None,
-        msg_created_at: Optional[datetime] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Extracts all candidate academic events from a message text.
-        Supports multi-event extraction per single message.
-        """
-        if not text or not text.strip():
-            return []
-
-        try:
-            from app.services.agnes_service import AgnesService
-            from app.tasks import _run_async
-
-            raw_res = _run_async(AgnesService.classify_and_extract(text.strip(), msg_created_at))
-            if raw_res and raw_res.get("classification") == "SIGNAL":
-                events_list = raw_res.get("events") or []
-                wrapped_list = []
-                for ev_item in events_list:
-                    wrapped = EventExtractionService._wrap_batch_result(ev_item, db=db)
-                    if wrapped:
-                        wrapped_list.append(wrapped)
-                if wrapped_list:
-                    return wrapped_list
-        except Exception as exc:
-            logger.debug("Agnes multi-event extraction fallback to single pipeline: %s", exc)
-
-        single = EventExtractionService.extract_event(text, db, msg_created_at)
-        return [single] if single else []
-
-    @staticmethod
-    # DEPRECATED: no production caller as of step 2; removed in step 4.
-    def extract_event(
-        text: str,
-        db: Optional[Session] = None,
-        msg_created_at: Optional[datetime] = None
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Parses raw text and extracts primary event metadata using legacy/hybrid pipeline.
-        """
-        if not text or not text.strip():
-            return None
-
-        return EventExtractionService._extract_legacy(text.strip(), db, msg_created_at)
-
-    @staticmethod
-    # DEPRECATED: no production caller as of step 2; removed in step 4.
-    def _extract_legacy(
-        text: str,
-        db: Optional[Session] = None,
-        msg_created_at: Optional[datetime] = None
-    ) -> Optional[Dict[str, Any]]:
-
-        if EventExtractionService._is_peer_question_or_non_event(text):
-            logger.debug("Event extraction skipped: message is peer inquiry/chatter: %r", text[:120])
-            return None
-
-        local_category, class_conf = MessageClassifier.classify_local_category(text)
-        classifier_cat = MessageClassifier.category_to_classifier(local_category)
-
-        if classifier_cat == ClassifierCategory.NOISE:
-            logger.debug("Event extraction skipped: message classified as noise")
-            return None
-
-        if EventExtractionService._is_bare_fragment(text, classifier_cat):
-            logger.debug("Event extraction skipped: message is a bare fragment with no substance: %r", text[:120])
-            return None
-
-        _, event_category = CATEGORY_MAP[classifier_cat]
-        event_type = event_category.value
-
-        scores = MessageClassifier.calculate_scores(text)
-
-        entities = NERService.extract_entities(text, db)
-        course_code = EventExtractionService.align_course_code(entities.get("course_code"), db)
-        venue = entities.get("location")
-        lecturer = entities.get("lecturer")
-
-        date_time = TemporalParser.parse_date_time(text, msg_created_at)
-        has_date_reference = TemporalParser.has_date_reference(text)
-
-        lines = [ll.strip() for ll in text.splitlines() if ll.strip()]
-        title = lines[0] if lines else "Academic Update"
-        if course_code:
-            title = f"[{course_code}] {title}"
-        if len(title) > 80:
-            title = title[:77] + "..."
-        description = text
-
-        actionability = EventExtractionService._assess_actionability(
-            event_type=event_type,
-            course_code=course_code,
-            date_time=date_time,
-            has_date_reference=has_date_reference,
-        )
-        event_completeness = EventExtractionService._event_completeness(
-            event_type=event_type,
-            course_code=course_code,
-            date_time=date_time,
-            has_date_reference=has_date_reference,
-        )
-
-        is_uncertain = actionability != "noise" and event_completeness != "complete"
-
-        if is_uncertain and LLMService.is_available():
-            logger.info("Local extraction uncertain. Triggering LLM extraction fallback.")
-            llm_extracted = EventExtractionService._extract_via_llm(text, msg_created_at)
-            if llm_extracted:
-                course_code = EventExtractionService.align_course_code(llm_extracted.get("course_code") or course_code, db)
-                event_type = llm_extracted.get("event_type") or event_type
-                title = llm_extracted.get("title") or title
-                description = llm_extracted.get("description") or description
-                venue = llm_extracted.get("venue") or venue
-                if llm_extracted.get("date_time"):
-                    try:
-                        date_time = datetime.fromisoformat(llm_extracted["date_time"].replace("Z", "+00:00"))
-                        if date_time.tzinfo is not None:
-                            date_time = date_time.astimezone(timezone.utc).replace(tzinfo=None)
-                    except ValueError:
-                        pass
-                has_date_reference = has_date_reference or bool(llm_extracted.get("date_time"))
-                event_completeness = EventExtractionService._event_completeness(
-                    event_type=event_type,
-                    course_code=course_code,
-                    date_time=date_time,
-                    has_date_reference=has_date_reference,
-                )
-                actionability = EventExtractionService._assess_actionability(
-                    event_type=event_type,
-                    course_code=course_code,
-                    date_time=date_time,
-                    has_date_reference=has_date_reference,
-                )
-                scores["confidence_score"] = min(scores["confidence_score"] + 0.08, 0.95)
-
-        entity_clarity = ConfidenceScorer.evaluate_entity_clarity(course_code, date_time, venue)
-        confidence_score = ConfidenceScorer.calculate_confidence(
-            evidence_count=1,
-            source_reliability=0.8,
-            entity_clarity=entity_clarity,
-            model_confidence=scores["confidence_score"],
-        )
-        if event_completeness != "complete":
-            confidence_score = min(confidence_score, 0.74)
-
-        field_confidence = ConfidenceScorer.field_confidences(
-            course_code=course_code,
-            date_time=date_time,
-            venue=venue,
-            classification_confidence=class_conf,
-        )
-
-        return {
-            "course_code": course_code,
-            "event_type": event_type,
-            "academic_category": local_category,
-            "title": title,
-            "description": description,
-            "venue": venue,
-            "date_time": date_time,
-            "lecturer": lecturer,
-            "actionability": actionability,
-            "event_completeness": event_completeness,
-            "field_confidence": field_confidence,
-            "needs_review": event_completeness != "complete" or confidence_score < 0.85,
-            "urgency_score": scores["urgency_score"],
-            "confidence_score": confidence_score,
-            "relevance_score": scores["relevance_score"],
-            "actionability_score": scores["actionability_score"],
-        }
-
     # ────────────────────────────────────────────
     #  Agnes batch extraction
     # ────────────────────────────────────────────
@@ -300,23 +124,40 @@ class EventExtractionService:
             if classification == "NOISE":
                 continue
 
+            # 1-based index of the source message within `messages`, per the
+            # prompt contract. Threaded through so the writer can attribute each
+            # event to the message that actually produced it instead of to the
+            # batch head, and so each event resolves its date against its own
+            # message timestamp.
+            src_index = item.get("index")
+            anchor = msg_created_at
+            if isinstance(src_index, int) and 1 <= src_index <= len(messages):
+                anchor = messages[src_index - 1].get("created_at") or msg_created_at
+
             nested_events = item.get("events")
-            if nested_events:
-                for ev_item in nested_events:
-                    wrapped = EventExtractionService._wrap_batch_result(ev_item, db=db)
-                    if wrapped:
-                        results.append(wrapped)
-            else:
-                wrapped = EventExtractionService._wrap_batch_result(item, db=db)
+            candidates = nested_events if nested_events else [item]
+            for ev_item in candidates:
+                wrapped = EventExtractionService._wrap_batch_result(
+                    ev_item, db=db, anchor=anchor
+                )
                 if wrapped:
+                    wrapped["_source_index"] = src_index
                     results.append(wrapped)
 
         return results
 
     @staticmethod
-    def _wrap_batch_result(agnes: Dict[str, Any], db: Optional[Session] = None) -> Optional[Dict[str, Any]]:
+    def _wrap_batch_result(
+        agnes: Dict[str, Any],
+        db: Optional[Session] = None,
+        anchor: Optional[datetime] = None,
+    ) -> Optional[Dict[str, Any]]:
         """
         Convert a single Agnes batch result item to the standardized event dict.
+
+        ``anchor`` is that event's OWN source-message timestamp, not the batch
+        head. A batch spans up to 15 messages and can cross midnight, so using
+        one anchor for all of them resolves "tomorrow" to the wrong day.
         """
         event_type = (agnes.get("category") or "INFO").upper()
         if event_type not in ("DEADLINE", "EVENT", "ALERT", "INFO"):
@@ -333,24 +174,34 @@ class EventExtractionService:
         raw_code = agnes.get("course_code")
         course_code = EventExtractionService.align_course_code(raw_code, db)
 
-        date_time = None
-        date_time_str = agnes.get("date_time")
-        if date_time_str:
-            try:
-                date_time = datetime.fromisoformat(
-                    date_time_str.replace("Z", "+00:00")
-                )
-                if date_time.tzinfo is not None:
-                    date_time = date_time.astimezone(timezone.utc).replace(tzinfo=None)
-            except (ValueError, TypeError):
-                logger.debug("Failed to parse Agnes date_time: %s", date_time_str)
+        # Dates are resolved HERE, deterministically, never by the model. The
+        # model returns the phrase as written; TemporalParser does the
+        # arithmetic against the message's own timestamp so it is testable and
+        # auditable.
+        if agnes.get("date_time"):
+            logger.info(
+                "Agnes returned a deprecated resolved date_time (%r); ignoring in "
+                "favour of date_expression. The prompt should no longer ask for it.",
+                agnes.get("date_time"),
+            )
 
-        urgency = agnes.get("urgency_score", 0.5)
+        date_time, date_precision = TemporalParser.resolve(
+            agnes.get("date_expression"),
+            anchor=anchor,
+            explicit=bool(agnes.get("date_is_explicit")),
+        )
+
         confidence = agnes.get("confidence_score", 0.8)
         relevance = agnes.get("relevance_score", 0.7)
         actionability_score = agnes.get("actionability_score", 0.6)
         needs_review = agnes.get("needs_review", False)
         event_completeness = agnes.get("event_completeness", "complete")
+
+        # A resolved date the model did not commit to is weaker evidence, so a
+        # non-explicit temporal phrase forces review.
+        if date_precision == DatePrecision.UNKNOWN or not agnes.get("date_is_explicit"):
+            if event_type in ("DEADLINE", "EVENT"):
+                needs_review = True
 
         field_confidence = {
             "course_code": 0.85 if course_code else 0.2,
@@ -387,186 +238,15 @@ class EventExtractionService:
             "description": description,
             "venue": agnes.get("venue"),
             "date_time": date_time,
+            "date_precision": date_precision.value,
             "lecturer": agnes.get("lecturer"),
             "actionability": actionability,
             "event_completeness": event_completeness,
             "field_confidence": field_confidence,
             "needs_review": needs_review,
-            "urgency_score": urgency,
+            # urgency_score is intentionally omitted: it is derived from
+            # time-to-deadline by urgency_service, never taken from the model.
             "confidence_score": confidence,
             "relevance_score": relevance,
             "actionability_score": actionability_score,
         }
-
-    # ──────────────────────────────────────────────────────────────
-    #  Noise & Fragment detection (works for both paths)
-    # ──────────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _is_peer_question_or_non_event(text: str) -> bool:
-        """
-        Detects casual student questions, borrowing requests, peer inquiries, and banter.
-        """
-        if not text:
-            return True
-        t_low = text.lower().strip()
-        peer_patterns = [
-            r"^(?:who\s+(?:has|have|is|knows)|has\s+anyone|anyone\s+(?:seen|have|knows|with)|can\s+someone|does\s+anyone)",
-            r"^(?:please\s+who|pls\s+who|where\s+(?:is|are|the)|are\s+we\s+having|is\s+there\s+any|is\s+class\s+holding)",
-            r"^(?:did\s+anyone|has\s+the\s+lecturer|any\s+update\s+on|good\s+morning|good\s+afternoon|good\s+evening)",
-            r"\b(?:i\s+need\s+to\s+borrow|borrow\s+(?:me\s+)?(?:the\s+)?(?:textbook|slides?|notes?|pdf|past\s+questions?))\b",
-            r"\b(?:who\s+has\s+the\s+textbook|anyone\s+seen\s+the\s+lecturer|seen\s+the\s+lecturer\?)\b",
-            r"\b(?:where\s+are\s+you\s+guys|are\s+you\s+guys\s+in\s+class|is\s+anyone\s+in\s+class)\b",
-        ]
-        if any(re.search(p, t_low) for p in peer_patterns):
-            official_keywords = [
-                "assignment is due", "submission deadline", "class is cancelled",
-                "lecture is cancelled", "rescheduled to", "venue changed to", "exam timetable"
-            ]
-            if not any(okw in t_low for okw in official_keywords):
-                return True
-        if t_low.endswith("?") and not any(kw in t_low for kw in ("deadline", "assignment", "exam", "test", "cancel", "venue")):
-            return True
-        return False
-
-    @staticmethod
-    # DEPRECATED: no production caller as of step 2; only caller is _extract_legacy. Removed in step 4.
-    def _is_bare_fragment(text: str, classifier_cat: "ClassifierCategory") -> bool:
-        stripped = text.strip()
-        words = stripped.split()
-        if not words:
-            return True
-
-        if len(words) <= 3:
-            action_keywords = (
-                "cancelled", "cancel", "postponed", "rescheduled",
-                "moved", "shifted", "venue change", "new venue",
-                "deadline", "due", "exam", "quiz", "test", "closed",
-                "lecture", "class", "lab", "tutorial", "assessment",
-                "assignment", "homework", "submission", "project",
-            )
-            has_action = any(kw in stripped.lower() for kw in action_keywords)
-
-            if classifier_cat == ClassifierCategory.NOISE and not has_action:
-                return True
-            if classifier_cat == ClassifierCategory.INFO and not has_action:
-                return True
-            if classifier_cat in (
-                ClassifierCategory.DEADLINE,
-                ClassifierCategory.EVENT,
-                ClassifierCategory.ALERT,
-            ) and not has_action:
-                return True
-
-        temporal_pattern = re.compile(
-            r"\b("
-            r"tomorrow|today|day\s+after\s+tomorrow"
-            r"|\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?"
-            r"|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?"
-            r"|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?"
-            r"|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:,\s*\d{4})?"
-            r"|next\s+(?:mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)"
-            r"|(?:this\s+)?(?:mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)"
-            r"|\d{1,2}(?::\d{2})?(?:\s*(?:am|pm))?"
-            r"|\d{1,2}:\d{2}(?:\s*(?:am|pm))?"
-            r")\b",
-            re.IGNORECASE,
-        )
-        stripped_of_time = temporal_pattern.sub("", stripped).strip()
-        remaining_words = stripped_of_time.split()
-
-        if not remaining_words:
-            return True
-
-        if len(remaining_words) == 1 and remaining_words[0].lower() in (
-            "and", "or", "at", "by", "on", "in", "the", "a", "an", "to",
-            "is", "was", "are",
-        ):
-            return True
-
-        return False
-
-    # ──────────────────────────────────────────────────────────────
-    #  Utility helpers
-    # ──────────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _assess_actionability(
-        event_type: str,
-        course_code: Optional[str],
-        date_time: Optional[datetime],
-        has_date_reference: bool,
-    ) -> str:
-        if event_type == EventCategory.INFO.value:
-            return "needs_attention"
-        if event_type == EventCategory.ALERT.value:
-            return "update_existing_event" if course_code else "needs_attention"
-        if event_type in {EventCategory.DEADLINE.value, EventCategory.EVENT.value}:
-            return "schedule_reminder" if course_code and date_time else "needs_attention"
-        return "needs_attention" if has_date_reference or course_code else "FYI"
-
-    @staticmethod
-    def _event_completeness(
-        event_type: str,
-        course_code: Optional[str],
-        date_time: Optional[datetime],
-        has_date_reference: bool,
-    ) -> str:
-        if event_type in {EventCategory.DEADLINE.value, EventCategory.ALERT.value}:
-            if not course_code:
-                return "missing_course"
-        if event_type == EventCategory.EVENT.value:
-            if not course_code:
-                return "missing_course"
-        if event_type in {EventCategory.DEADLINE.value, EventCategory.EVENT.value}:
-            if not date_time:
-                return "missing_date" if not has_date_reference else "missing_time_resolution"
-        return "complete"
-
-    @staticmethod
-    def _extract_via_llm(text: str, anchor_time: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
-        from app.timezone_utils import now_app
-
-        anchor_dt = anchor_time or now_app()
-        weekday_name = anchor_dt.strftime("%A")
-        anchor_str = f"{weekday_name}, {anchor_dt.isoformat()} (Day of week: {weekday_name})"
-
-        system_prompt = (
-            "You are an expert academic information extraction system. "
-            "Given a WhatsApp message from a student group and a Reference Timestamp Anchor, "
-            "extract the structured event details.\n\n"
-            "Return a JSON object with these EXACT keys:\n"
-            "- course_code: Normalized course code (e.g. 'CSC301', 'ELE310', uppercase, no spaces, or null)\n"
-            "- event_type: One of: 'DEADLINE', 'EVENT', 'ALERT', 'INFO'\n"
-            "- title: Clear summary of the announcement (max 80 chars, e.g. 'CSC301 Quiz postponed')\n"
-            "- description: Full details or the raw text\n"
-            "- venue: Location of event or null\n"
-            "- date_time: Resolved ISO-8601 date-time string in UTC, calculated relative to the Reference Timestamp. "
-            "If no time is specified, default to 09:00:00. If no date is specified, return null.\n\n"
-            "Return ONLY the raw JSON object. Do not wrap in markdown or backticks."
-        )
-
-        user_content = f"Reference Timestamp Anchor: {anchor_str}\nMessage Text:\n{text}"
-
-        try:
-            from app.tasks import _run_async
-            response_str = _run_async(LLMService.chat(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content}
-                ],
-                temperature=0.0,
-                max_tokens=250
-            ))
-
-            clean_response = response_str.strip()
-            if clean_response.startswith("```json"):
-                clean_response = clean_response[7:]
-            if clean_response.endswith("```"):
-                clean_response = clean_response[:-3]
-            clean_response = clean_response.strip()
-
-            return json.loads(clean_response)
-        except Exception as e:
-            logger.warning("LLM extraction fallback failed: %s", e)
-            return None

@@ -15,7 +15,7 @@ from app.models import User, OCRExtraction, AcademicEvent
 from app.schemas import OCRExtractResponse
 from app.dependencies import get_current_user
 from app.services.ocr_service import OCRService
-from app.services.classifier_service import MessageClassifier
+from app.services.urgency_service import compute_urgency
 from app.utils import generate_embedding
 from app.config import settings
 from app.rate_limit import limiter
@@ -241,12 +241,16 @@ async def extract_from_image(
         except ValueError:
             parsed_group_id = None
 
+    extraction_confidence = (
+        0.95 if file.content_type == "application/pdf" else (0.85 if raw_text else 0.0)
+    )
+
     ocr_record = OCRExtraction(
         user_id=user.id,
         group_id=parsed_group_id,
         message_id=None,
         extracted_text=raw_text,
-        extraction_confidence=0.95 if file.content_type == "application/pdf" else (0.85 if raw_text else 0.0),
+        extraction_confidence=extraction_confidence,
         extraction_strategy="pdf_parse" if file.content_type == "application/pdf" else ("paddleocr" if raw_text else "pytesseract"),
         user_instructions=instructions,
         filtered_events=structured_events,
@@ -260,9 +264,6 @@ async def extract_from_image(
         try:
             text_for_analysis = ev_data.get("title", "")
 
-            # Score the event
-            scores = MessageClassifier.calculate_scores(text_for_analysis)
-
             # Generate embedding
             embedding_vec = generate_embedding(text_for_analysis)
 
@@ -274,6 +275,10 @@ async def extract_from_image(
                 ev_data.get("time_str"),
             )
 
+            # Confidence tracks how well the document was read; relevance and
+            # actionability use the same neutral defaults as the WhatsApp
+            # extractor. Urgency is DERIVED from the parsed date, never guessed
+            # from keywords in the title.
             event = AcademicEvent(
                 user_id=user.id,
                 group_id=None,
@@ -283,13 +288,13 @@ async def extract_from_image(
                 description=f"Extracted from image via OCR. Raw: {ev_data.get('raw_line', '')}",
                 venue=ev_data.get("venue"),
                 date_time=parsed_dt,
-                urgency_score=scores["urgency_score"],
-                confidence_score=scores["confidence_score"],
-                relevance_score=scores["relevance_score"],
-                actionability_score=scores["actionability_score"],
+                confidence_score=extraction_confidence,
+                relevance_score=0.7,
+                actionability_score=0.6,
                 embedding=json.dumps(embedding_vec),
                 source_message_id=str(ocr_record.id),
             )
+            event.urgency_score = compute_urgency(event)
             db.add(event)
             db.flush()
             created_events.append(event)

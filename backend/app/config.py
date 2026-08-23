@@ -112,6 +112,19 @@ class Settings:
     agnes_request_timeout: float = float(os.getenv("AGNES_REQUEST_TIMEOUT", "15"))
     batch_max_attempts: int = _get_int("BATCH_MAX_ATTEMPTS", 5)
     batch_bisect_after: int = _get_int("BATCH_BISECT_AFTER", 3)
+    # §6.1 dispatch triggers. A group is dispatched when it has accumulated
+    # BATCH_SIZE_TRIGGER messages, when its oldest unprocessed message is older
+    # than BATCH_AGE_TRIGGER_SECONDS, or when a tripwire keyword appears.
+    batch_size_trigger: int = _get_int("BATCH_SIZE_TRIGGER", 15)
+    batch_age_trigger_seconds: int = _get_int("BATCH_AGE_TRIGGER_SECONDS", 90)
+    # Words that mean "a student is about to miss something" — dispatch at once
+    # rather than waiting for the size or age trigger.
+    batch_tripwire_keywords: str = os.getenv(
+        "BATCH_TRIPWIRE_KEYWORDS",
+        "cancelled,canceled,postponed,rescheduled,venue,urgent,deadline,exam,test,submission",
+    )
+    # Seconds a per-group dispatch lock is held before it is considered stale.
+    batch_dispatch_lock_seconds: int = _get_int("BATCH_DISPATCH_LOCK_SECONDS", 600)
 
     # ── Premium Real-Time Alerts (push/DM channel) ────────────────────────────
     push_webhook_url: str = os.getenv("PUSH_WEBHOOK_URL", "")
@@ -150,10 +163,6 @@ class Settings:
     debug: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
     scheduler_enabled: bool = _get_bool(
         "SCHEDULER_ENABLED",
-        os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).lower() in {"production", "prod"},
-    )
-    semantic_prewarm_enabled: bool = _get_bool(
-        "SEMANTIC_PREWARM_ENABLED",
         os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).lower() in {"production", "prod"},
     )
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
@@ -222,6 +231,13 @@ class Settings:
         self.agnes_enabled = bool(self.agnes_api_key)
         self.batch_max_attempts = _get_int("BATCH_MAX_ATTEMPTS", 5)
         self.batch_bisect_after = _get_int("BATCH_BISECT_AFTER", 3)
+        self.batch_size_trigger = _get_int("BATCH_SIZE_TRIGGER", 15)
+        self.batch_age_trigger_seconds = _get_int("BATCH_AGE_TRIGGER_SECONDS", 90)
+        self.batch_tripwire_keywords = os.getenv(
+            "BATCH_TRIPWIRE_KEYWORDS",
+            "cancelled,canceled,postponed,rescheduled,venue,urgent,deadline,exam,test,submission",
+        )
+        self.batch_dispatch_lock_seconds = _get_int("BATCH_DISPATCH_LOCK_SECONDS", 600)
         self.push_webhook_url = os.getenv("PUSH_WEBHOOK_URL", "")
         self.push_webhook_enabled = _get_bool("PUSH_WEBHOOK_ENABLED", False)
         self.push_webhook_timeout_seconds = _get_float("PUSH_WEBHOOK_TIMEOUT_SECONDS", 5.0)
@@ -243,7 +259,6 @@ class Settings:
         self.app_env = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).lower()
         self.debug = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
         self.scheduler_enabled = _get_bool("SCHEDULER_ENABLED", self.app_env in {"production", "prod"})
-        self.semantic_prewarm_enabled = _get_bool("SEMANTIC_PREWARM_ENABLED", self.app_env in {"production", "prod"})
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
         self.log_format = os.getenv("LOG_FORMAT", "json")
         self.openapi_servers = os.getenv("OPENAPI_SERVERS", "")

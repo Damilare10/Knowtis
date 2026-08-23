@@ -613,9 +613,17 @@ class ExtractedEventItem(BaseModel):
     title: str = Field(default="Academic Update", description="Concise info card title (max 80 chars)")
     description: Optional[str] = Field(default=None, description="Extracted event details")
     venue: Optional[str] = Field(default=None, description="Location or venue")
-    date_time: Optional[str] = Field(default=None, description="ISO-8601 UTC datetime string")
+    date_expression: Optional[str] = Field(default=None, description="The temporal phrase exactly as written, e.g. 'next friday 2pm'. Resolved downstream by TemporalParser.")
+    date_is_explicit: bool = Field(default=False, description="True when the message states a date or day; False for vague terms like 'soon'")
+    # Deprecated: models are no longer asked for a resolved date, because LLM
+    # date arithmetic is unverifiable and untestable. Accepted for one release
+    # so an older prompt response does not hard-fail validation; ignored by
+    # _wrap_batch_result, which logs when it appears.
+    date_time: Optional[str] = Field(default=None, description="DEPRECATED, ignored. Use date_expression.")
     lecturer: Optional[str] = Field(default=None, description="Lecturer or instructor name")
-    urgency_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    # Deprecated: urgency is derived locally from time-to-deadline by
+    # urgency_service, never taken from the model.
+    urgency_score: float = Field(default=0.5, ge=0.0, le=1.0, description="DEPRECATED, ignored.")
     confidence_score: float = Field(default=0.8, ge=0.0, le=1.0)
     relevance_score: float = Field(default=0.7, ge=0.0, le=1.0)
     actionability_score: float = Field(default=0.6, ge=0.0, le=1.0)

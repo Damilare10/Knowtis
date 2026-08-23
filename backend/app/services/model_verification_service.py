@@ -127,7 +127,7 @@ class ModelVerificationService:
             "Dr. Taiwo shifted our CSC 301 assessment to Thursday morning",
         ]
         try:
-            from app.services.setfit_classifier_service import SetFitClassifierService
+            from training.setfit_classifier_service import SetFitClassifierService
             original_path = getattr(SetFitClassifierService, "_model", None)
             original_failed = getattr(SetFitClassifierService, "_load_failed", False)
             model = None

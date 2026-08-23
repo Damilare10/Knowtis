@@ -66,11 +66,11 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.recover_groups",
         "schedule": crontab(minute="*/5"),
     },
-    # Message batch processing: every 2 minutes, dispatch unprocessed messages
-    # per active group through the single batch writer.
-    # TODO(step-3): Replace fixed-interval with real trigger logic (§6.1).
+    # Message batch processing: evaluate dispatch triggers every 30 seconds.
+    # The beat MUST be tighter than the age trigger it enforces — at a 2-minute
+    # beat an "older than 90s" rule could never fire on time.
     "dispatch-message-batches": {
         "task": "app.tasks.dispatch_message_batches",
-        "schedule": crontab(minute="*/2"),
+        "schedule": 30.0,
     },
 }

@@ -15,6 +15,7 @@ import time
 import asyncio
 import re
 from datetime import datetime
+from types import SimpleNamespace
 
 from celery import Task
 
@@ -59,6 +60,31 @@ def _strip_calendar_command_text(message_text: str) -> str:
     clean_msg = re.sub(r"@\S+", "", clean_msg)
     clean_msg = re.sub(rf"(?i)knowtis", "", clean_msg)
     return clean_msg.strip(": \t\n\r")
+
+
+def _urgency_view(event, date_precision=None):
+    """Duck-typed view of an event for :func:`compute_urgency`.
+
+    ``date_precision`` is resolved by ``TemporalParser`` and travels in the
+    extracted payload, but ``AcademicEvent`` has no column for it until step 5.
+    Scoring through this view lets a DAY_ONLY date be treated as end-of-day,
+    instead of reading as due 00:00 and over-scoring by nearly a full day.
+
+    ``status`` is read with ``getattr`` for the same reason: the column arrives
+    with step 5, and once it does a cancelled event scores 0.0 automatically.
+
+    TODO(step-5): once ``AcademicEvent.date_precision`` and ``status`` exist,
+    persist the resolved precision on the row and score the instance directly.
+    """
+    if date_precision is None:
+        date_precision = getattr(event, "date_precision", None)
+    return SimpleNamespace(
+        event_type=event.event_type,
+        date_time=event.date_time,
+        confidence_score=event.confidence_score,
+        date_precision=date_precision,
+        status=getattr(event, "status", None),
+    )
 
 
 def _run_async(coro):
@@ -247,9 +273,13 @@ def process_incoming_message_task(data: dict):
 
 @celery_app.task(name="app.tasks.send_pending_reminders_task", base=RateLimitedTask)
 def send_pending_reminders_task():
-    """Asynchronous task wrapper to execute due reminders"""
-    from app.scheduler import _execute_pending_reminders
-    _execute_pending_reminders()
+    """Asynchronous task wrapper for the 5-minute cycle.
+
+    Runs the same ``run_reminder_cycle`` as the in-process scheduler, so derived
+    urgency is refreshed on this cadence whichever driver is active.
+    """
+    from app.scheduler import run_reminder_cycle
+    run_reminder_cycle()
     return "done"
 
 
@@ -296,52 +326,202 @@ def recover_groups():
     return _run_async(RecoveryService().reconcile_groups())
 
 
+def _tripwire_clause(column, keywords):
+    """Portable case-insensitive keyword match.
+
+    SQLite has no ``ILIKE``, and SQLAlchemy's ``ilike`` compiles to
+    ``lower(x) LIKE lower(y)`` there, which is fine, but the pattern still has to
+    be built per keyword. Kept as one helper so the dispatcher and its tests
+    cannot drift apart.
+    """
+    from sqlalchemy import func, or_
+
+    clauses = [
+        func.lower(column).like(f"%{kw}%")
+        for kw in (k.strip().lower() for k in keywords)
+        if kw
+    ]
+    return or_(*clauses) if clauses else None
+
+
+def _dispatch_lock_key(group_id) -> str:
+    # Normalised so a UUID object and its string form map to the same lock: the
+    # dispatcher holds a UUID, the task receives a string.
+    return f"knowtis_dispatch_{str(group_id).lower()}"
+
+
+def _acquire_dispatch_lock(group_id) -> bool:
+    """Take a short-lived per-group dispatch lock. True when acquired.
+
+    At a 30-second beat a batch that is still running would otherwise be
+    dispatched again, and two workers would load and process the same rows:
+    ``ai_processed`` is only flipped at the END of a successful batch, so the
+    second worker sees the same unprocessed set.
+
+    Uses the same atomic ``O_CREAT | O_EXCL`` file pattern as
+    ``scheduler._acquire_scheduler_lock``, including its staleness rule, so a
+    worker that is killed mid-batch cannot wedge a group permanently.
+
+    NOTE: this is per-host. It stops the duplicate-dispatch case that the 30s
+    beat creates on a single worker host, not distributed contention across
+    hosts; a multi-host deployment needs the Redis lock noted in the TODO.
+    """
+    import os
+    import tempfile
+
+    from app.config import settings
+
+    path = os.path.join(tempfile.gettempdir(), _dispatch_lock_key(group_id))
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        try:
+            age = time.time() - os.path.getmtime(path)
+            if age < settings.batch_dispatch_lock_seconds:
+                return False
+            # Stale: the previous holder died mid-batch. Take it over.
+            os.remove(path)
+            return _acquire_dispatch_lock(group_id)
+        except OSError:
+            return False
+    except OSError:
+        return False
+
+
+def _release_dispatch_lock(group_id) -> None:
+    import os
+    import tempfile
+
+    try:
+        os.remove(os.path.join(tempfile.gettempdir(), _dispatch_lock_key(group_id)))
+    except OSError:
+        pass
+
+
 @celery_app.task(name="app.tasks.dispatch_message_batches", base=RateLimitedTask)
 def dispatch_message_batches():
-    """Fan-out dispatcher: select groups with unprocessed messages and enqueue a batch job for each.
+    """Fan-out dispatcher: decide WHICH groups are ready, then enqueue one batch each.
 
-    Runs every 2 minutes via Celery beat.  This cadence is tighter than the
-    old 30-minute batch because the batch writer is now the *only* path to
-    ``AcademicEvent`` — a 30-minute ceiling would degrade worst-case latency
-    compared to the old 2-minute listener write.
+    Runs every 30 seconds via Celery beat. The cadence has to be tighter than the
+    age trigger it enforces: at the old 2-minute beat an "older than 90s" rule
+    could never fire on time, because the first evaluation after a message
+    arrived was already up to 120s late.
 
-    # TODO(step-3): Replace this fixed-interval dispatch with real trigger
-    # logic (§6.1): size >= 15 / age > 90s / tripwire keyword.
+    A group is dispatched when ANY of (§6.1):
+      * it has accumulated ``batch_size_trigger`` unprocessed messages,
+      * its oldest unprocessed message is older than ``batch_age_trigger_seconds``,
+      * any unprocessed message contains a tripwire keyword.
+
+    Groups below every threshold are left to accumulate, which is the point:
+    batching several messages into one LLM call is what makes the pipeline
+    affordable, and a lone "ok" should not trigger a call at all.
     """
+    from datetime import timedelta
+
+    from sqlalchemy import func
+
     from app.config import settings
     from app.database import SessionLocal
-    from app.models import WhatsAppGroup, RawMessage, CoverageState, ProcessingStatus
-    from sqlalchemy import func
+    from app.models import CoverageState, ProcessingStatus, RawMessage, WhatsAppGroup
 
     db = SessionLocal()
     try:
-        # Find distinct group_ids that have at least one unprocessed message
-        # on an active group. Exclude exhausted and quarantined rows.
-        group_ids = (
-            db.query(RawMessage.group_id)
+        now = datetime.utcnow()
+        age_cutoff = now - timedelta(seconds=settings.batch_age_trigger_seconds)
+        keywords = settings.batch_tripwire_keywords.split(",")
+
+        eligible = (
+            RawMessage.ai_processed == False,  # noqa: E712
+            RawMessage.message_text.isnot(None),
+            RawMessage.message_text != "",
+            RawMessage.ai_attempts < settings.batch_max_attempts,
+            RawMessage.processing_status != ProcessingStatus.QUARANTINED,
+        )
+
+        # One aggregate pass instead of a query per group: count the backlog and
+        # find the oldest message per group in a single round trip.
+        rows = (
+            db.query(
+                RawMessage.group_id,
+                func.count(RawMessage.id).label("pending"),
+                func.min(RawMessage.created_at).label("oldest"),
+            )
             .join(WhatsAppGroup, WhatsAppGroup.id == RawMessage.group_id)
             .filter(
-                RawMessage.ai_processed == False,
-                RawMessage.message_text.isnot(None),
-                RawMessage.message_text != "",
-                RawMessage.ai_attempts < settings.batch_max_attempts,
-                RawMessage.processing_status != ProcessingStatus.QUARANTINED,
-                WhatsAppGroup.is_active == True,
+                *eligible,
+                WhatsAppGroup.is_active == True,  # noqa: E712
                 WhatsAppGroup.coverage_state == CoverageState.ACTIVE,
             )
-            .distinct()
+            .group_by(RawMessage.group_id)
             .all()
         )
 
-        if not group_ids:
+        if not rows:
             return "no_unprocessed_groups"
 
-        dispatched = 0
-        for (gid,) in group_ids:
-            process_message_batch.delay(str(gid))
-            dispatched += 1
+        # Tripwire groups, resolved once for the whole cycle.
+        tripwire_groups = set()
+        clause = _tripwire_clause(RawMessage.message_text, keywords)
+        if clause is not None:
+            candidate_ids = [r.group_id for r in rows]
+            tripwire_groups = {
+                gid
+                for (gid,) in db.query(RawMessage.group_id)
+                .filter(*eligible, RawMessage.group_id.in_(candidate_ids), clause)
+                .distinct()
+                .all()
+            }
 
-        logger.info("Dispatched %d batch job(s)", dispatched)
+        dispatched = 0
+        skipped_waiting = 0
+        skipped_locked = 0
+        for row in rows:
+            reasons = []
+            if row.pending >= settings.batch_size_trigger:
+                reasons.append(f"size={row.pending}")
+            if row.oldest is not None and row.oldest <= age_cutoff:
+                reasons.append(f"age={(now - row.oldest).total_seconds():.0f}s")
+            if row.group_id in tripwire_groups:
+                reasons.append("tripwire")
+
+            if not reasons:
+                skipped_waiting += 1
+                continue
+
+            # TODO(step-3): replace the file lock with a Redis SET NX EX lock so
+            # this holds across worker hosts, not just per host.
+            if not _acquire_dispatch_lock(row.group_id):
+                skipped_locked += 1
+                logger.debug(
+                    "Group %s already has a batch in flight; not dispatching",
+                    row.group_id,
+                )
+                continue
+
+            # The lock is released by process_message_batch, not here. If the
+            # enqueue itself fails the group would stay locked until the
+            # staleness window, so release it on that path explicitly.
+            try:
+                process_message_batch.delay(str(row.group_id))
+            except Exception:
+                _release_dispatch_lock(row.group_id)
+                raise
+            dispatched += 1
+            logger.info(
+                "Dispatched batch for group %s (%s)", row.group_id, ", ".join(reasons)
+            )
+
+        if skipped_waiting or skipped_locked:
+            logger.debug(
+                "Dispatch cycle: %d dispatched, %d below threshold, %d locked",
+                dispatched, skipped_waiting, skipped_locked,
+            )
+
+        if not dispatched:
+            return "no_group_triggered"
         return f"dispatched_{dispatched}"
 
     except Exception:
@@ -363,6 +543,12 @@ def process_message_batch(group_id: str, message_ids: list[str] | None = None):
     ``ai_processed`` is set to ``True`` and ``ai_attempts`` is reset to 0 only after
     the batch succeeds. Failures increment ``ai_attempts``, triggering bisect or
     quarantine.
+
+    Locking: the DISPATCHER takes the per-group lock before enqueuing, and this
+    task releases it when the auto-select run finishes. The explicit
+    ``message_ids`` path never takes or releases it, because 3B enqueues two
+    bisect children for the same group and a per-group lock would deadlock them
+    against each other.
     """
     import uuid as _uuid
     from app.config import settings
@@ -372,7 +558,10 @@ def process_message_batch(group_id: str, message_ids: list[str] | None = None):
     from app.services.deduplication_service import DeduplicationService
     from app.services.notification_service import NotificationService
     from app.services.reminder_service import ReminderService
+    from app.services.urgency_service import compute_urgency
     from app.utils import generate_embedding
+
+    holds_dispatch_lock = message_ids is None
 
     db = SessionLocal()
     try:
@@ -426,13 +615,60 @@ def process_message_batch(group_id: str, message_ids: list[str] | None = None):
         if not unprocessed:
             return "no_unprocessed"
 
-        # Build payload
+        # Deterministic prefilter: drop empty / fragment / repeat messages before
+        # they cost an LLM call. exclude_message_id is REQUIRED here: these rows
+        # are already persisted with their text_hash, so without it every message
+        # matches itself and the prefilter skips all traffic.
+        from app.services.prefilter import classify_skip
+
+        survivors = []
+        skipped = 0
+        for msg in unprocessed:
+            # `before` is REQUIRED alongside exclude_message_id. The repeat rule
+            # is "keep the first, skip later copies", which needs an ordering:
+            # with only the id exclusion, two identical messages in the same
+            # batch each match the OTHER one and both are skipped, losing the
+            # announcement outright.
+            skip_status = classify_skip(
+                msg.message_text,
+                group.id,
+                db,
+                exclude_message_id=msg.id,
+                before=msg.created_at,
+            )
+            if skip_status is not None:
+                msg.processing_status = skip_status
+                msg.ai_processed = True
+                msg.ai_attempts = 0
+                skipped += 1
+            else:
+                survivors.append(msg)
+
+        if skipped:
+            db.commit()
+            logger.info(
+                "Prefilter skipped %d/%d message(s) for group %s before any LLM call",
+                skipped, len(unprocessed), group.group_name,
+            )
+
+        if not survivors:
+            return f"prefiltered_{skipped}"
+
+        unprocessed = survivors
+
+        # Build payload. created_at travels with each message so every extracted
+        # event resolves its date against its OWN source message rather than the
+        # batch head; a 15-message batch can cross midnight.
         messages_payload = [
-            {"id": str(msg.id), "message_text": msg.message_text}
+            {
+                "id": str(msg.id),
+                "message_text": msg.message_text,
+                "created_at": msg.created_at,
+            }
             for msg in unprocessed
         ]
 
-        # Anchor timestamp: resolve relative dates against the message, not now()
+        # Fallback anchor only, for events whose index cannot be mapped.
         anchor = unprocessed[0].created_at
 
         # Call Agnes batch extraction
@@ -506,9 +742,37 @@ def process_message_batch(group_id: str, message_ids: list[str] | None = None):
 
         processed_total = 0
 
+        # Map the 1-based index Agnes returns back to the source message, and
+        # validate hard: a dropped or renumbered index would otherwise silently
+        # attribute an event to the wrong message.
+        index_to_raw = {i + 1: m for i, m in enumerate(unprocessed)}
+        seen_indices = [e.get("_source_index") for e in events if e.get("_source_index")]
+        if len(seen_indices) != len(set(seen_indices)):
+            logger.warning(
+                "Agnes returned duplicate source indices for group %s: %s",
+                group.id, seen_indices,
+            )
+        missing_index = sum(1 for e in events if e.get("_source_index") is None)
+        if missing_index:
+            logger.warning(
+                "Agnes omitted the index on %d/%d event(s) for group %s",
+                missing_index, len(events), group.id,
+            )
+
         for event_data in events:
             if not event_data or not event_data.get("title"):
                 continue
+
+            # Resolve the source message before reconciling, and strip the
+            # internal plumbing key so it can never reach the ORM.
+            src_index = event_data.pop("_source_index", None)
+            src_raw = index_to_raw.get(src_index) if isinstance(src_index, int) else None
+            if src_raw is None:
+                logger.warning(
+                    "Unmappable source index %r for group %s; attributing to batch head",
+                    src_index, group.id,
+                )
+                src_raw = unprocessed[0]
 
             # Route through reconcile_event — never a bare db.add()
             reconciled_event, outcome = DeduplicationService.reconcile_event(
@@ -522,6 +786,16 @@ def process_message_batch(group_id: str, message_ids: list[str] | None = None):
                 continue
 
             if outcome in ("UPDATED", "CANCELLED") and reconciled_event:
+                # Urgency depends on date_time, which an UPDATE may have moved.
+                # Only pass the incoming precision when the payload actually
+                # carried a date: otherwise the row kept its original date_time
+                # and the incoming precision does not describe it.
+                reconciled_event.urgency_score = compute_urgency(
+                    _urgency_view(
+                        reconciled_event,
+                        event_data.get("date_precision") if event_data.get("date_time") else None,
+                    )
+                )
                 # Notify on mutation
                 if not reconciled_event.needs_review:
                     NotificationService.dispatch_alert(
@@ -540,11 +814,6 @@ def process_message_batch(group_id: str, message_ids: list[str] | None = None):
             canonical_text = EventExtractionService.canonical_dedup_text(event_data)
             embedding = generate_embedding(canonical_text)
 
-            # TODO(step-3): honour item.index from agnes_service._parse_batch_json
-            # so each event maps to its actual source message. Until then,
-            # attribute to the batch's first message.
-            first_raw = unprocessed[0]
-
             academic_event = AcademicEvent(
                 user_id=group.user_id,
                 group_id=group.id,
@@ -554,14 +823,20 @@ def process_message_batch(group_id: str, message_ids: list[str] | None = None):
                 description=event_data.get("description"),
                 venue=event_data.get("venue"),
                 date_time=event_data.get("date_time"),
-                urgency_score=event_data.get("urgency_score", 0.5),
                 confidence_score=event_data.get("confidence_score", 0.8),
                 relevance_score=event_data.get("relevance_score", 0.7),
                 actionability_score=event_data.get("actionability_score", 0.6),
                 needs_review=bool(event_data.get("needs_review", True)),
                 embedding=json.dumps(embedding) if embedding else None,
-                source_message_id=first_raw.message_id,
+                source_message_id=src_raw.message_id,
                 source_group_jid=group.group_jid,
+            )
+            # Urgency is DERIVED from time-to-deadline, never taken from the
+            # model or from keyword presence. Scored through _urgency_view so the
+            # resolved date_precision is honoured even though AcademicEvent has
+            # no column for it yet.
+            academic_event.urgency_score = compute_urgency(
+                _urgency_view(academic_event, event_data.get("date_precision"))
             )
             db.add(academic_event)
             db.flush()
@@ -610,3 +885,7 @@ def process_message_batch(group_id: str, message_ids: list[str] | None = None):
         raise
     finally:
         db.close()
+        # Release even on failure: holding the lock after a crash would stall the
+        # group until the staleness window expired.
+        if holds_dispatch_lock:
+            _release_dispatch_lock(group_id)

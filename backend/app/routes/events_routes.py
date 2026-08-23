@@ -13,10 +13,10 @@ from app.database import get_db
 from app.models import AcademicEvent, User, EventType
 from app.schemas import AcademicEventResponse, AcademicEventCreate, AcademicEventListResponse, SemanticSearchResponse
 from app.dependencies import get_current_user
-from app.services.classifier_service import MessageClassifier
 from app.services.deduplication_service import DeduplicationService
 from app.services.search_service import SearchService
 from app.services.reminder_service import ReminderService
+from app.services.urgency_service import compute_urgency
 from app.utils import generate_embedding
 
 logger = logging.getLogger(__name__)
@@ -175,9 +175,6 @@ async def create_event(
         # Build a text representation for NLP and embedding
         text_for_analysis = f"{event_data.title} {event_data.description or ''} {event_data.course_code or ''}"
 
-        # ── Score the event via classifier ────────────────────────────────────
-        scores = MessageClassifier.calculate_scores(text_for_analysis)
-
         # ── Generate semantic embedding ───────────────────────────────────────
         embedding_vec = generate_embedding(text_for_analysis)
         embedding_str = json.dumps(embedding_vec)
@@ -198,6 +195,10 @@ async def create_event(
                 f"Duplicate detected — linking to canonical event {canonical_id}")
 
         # ── Persist event ─────────────────────────────────────────────────────
+        # The user supplied these fields directly, so there is no model
+        # prediction to score: confidence/relevance/actionability are 1.0 by
+        # definition. Urgency is still DERIVED from the deadline rather than
+        # guessed from keywords in the title.
         event = AcademicEvent(
             user_id=user.id,
             group_id=None,
@@ -207,14 +208,14 @@ async def create_event(
             description=event_data.description,
             venue=event_data.venue,
             date_time=event_data.date_time,
-            urgency_score=scores["urgency_score"],
-            confidence_score=scores["confidence_score"],
-            relevance_score=scores["relevance_score"],
-            actionability_score=scores["actionability_score"],
+            confidence_score=1.0,
+            relevance_score=1.0,
+            actionability_score=1.0,
             embedding=embedding_str,
             is_duplicate=is_duplicate,
             canonical_event_id=canonical_id,
         )
+        event.urgency_score = compute_urgency(event)
 
         db.add(event)
         db.commit()

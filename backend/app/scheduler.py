@@ -99,6 +99,73 @@ def _execute_pending_reminders():
         db.close()
 
 
+def _refresh_urgency_scores():
+    """Job: re-derive ``urgency_score`` for every user holding a live event.
+
+    Urgency is a function of time-to-deadline, so a score written at extraction
+    time goes stale as the deadline approaches. Without this pass the dashboard's
+    primary sort key would only ever be correct at the instant the event was
+    created — an assignment due in four hours would keep the score it had when it
+    was still four days out.
+
+    Scoped to users who actually own a live event so the work does not grow with
+    the size of the user table.
+    """
+    from app.database import SessionLocal
+    from app.models import AcademicEvent
+    from app.services.urgency_service import recompute_for_user
+
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        cutoff = now - timedelta(hours=24)
+
+        user_ids = (
+            db.query(AcademicEvent.user_id)
+            .filter(AcademicEvent.is_archived == False)  # noqa: E712
+            .filter(
+                (AcademicEvent.date_time.is_(None))
+                | (AcademicEvent.date_time >= cutoff)
+            )
+            .distinct()
+            .all()
+        )
+        if not user_ids:
+            return
+
+        updated = 0
+        for (user_id,) in user_ids:
+            try:
+                updated += recompute_for_user(user_id, db, now)
+            except Exception as exc:
+                # One user's bad row must not stop the rest of the sweep.
+                logger.error("Urgency refresh failed for user %s: %s", user_id, exc)
+                db.rollback()
+
+        if updated:
+            logger.info(
+                "Urgency refresh: rescored %d event(s) across %d user(s)",
+                updated, len(user_ids),
+            )
+
+    except Exception as e:
+        logger.error(f"Urgency refresh job error: {e}")
+    finally:
+        db.close()
+
+
+def run_reminder_cycle():
+    """The 5-minute cycle: refresh derived urgency, then fire due reminders.
+
+    Both drivers call this — the in-process APScheduler job and the Celery beat
+    task ``app.tasks.send_pending_reminders_task`` — so the two cannot drift
+    apart. Urgency runs in its own guarded pass; a scoring failure must never
+    stop a reminder from being delivered.
+    """
+    _refresh_urgency_scores()
+    _execute_pending_reminders()
+
+
 def _generate_night_briefs():
     """
     Job: generate a Night Brief notification for every active user at 20:00 daily.
@@ -362,7 +429,7 @@ def start_scheduler():
     """
     Start the background scheduler.
     Jobs:
-    - Every 5 minutes: execute due reminders
+    - Every 5 minutes: refresh derived urgency, then execute due reminders
     - Daily at 20:00 UTC: generate Night Briefs for all users
     - Every 30 seconds: process staggered WhatsApp group joins
     """
@@ -389,14 +456,14 @@ def start_scheduler():
 
     _scheduler = BackgroundScheduler(timezone="UTC")
 
-    # Fire due reminders every 5 minutes
+    # Refresh derived urgency, then fire due reminders, every 5 minutes
     _scheduler.add_job(
-        _execute_pending_reminders,
+        run_reminder_cycle,
         trigger="interval",
         minutes=5,
         id="reminder_executor",
         replace_existing=True,
-        name="Execute Pending Reminders",
+        name="Refresh Urgency + Execute Pending Reminders",
     )
 
     # Night Brief every evening at 20:00 UTC
@@ -421,7 +488,7 @@ def start_scheduler():
     )
 
     _scheduler.start()
-    logger.info("Background scheduler started (reminder executor + night brief + join queue)")
+    logger.info("Background scheduler started (urgency refresh + reminder executor + night brief + join queue)")
 
 
 def stop_scheduler():

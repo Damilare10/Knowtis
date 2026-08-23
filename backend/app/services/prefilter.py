@@ -101,6 +101,7 @@ def classify_skip(
     group_id,
     db: Session,
     exclude_message_id=None,
+    before: Optional[datetime] = None,
 ) -> Optional[ProcessingStatus]:
     """Return the status to record for a droppable message, else None.
 
@@ -109,6 +110,11 @@ def classify_skip(
     message (with its ``text_hash``) before the batch writer runs. Without the
     exclusion the repeat check matches the row against itself and every single
     message is reported as SKIPPED_REPEAT.
+
+    ``before`` should be the candidate's own ``created_at``. The repeat rule is
+    "keep the first, skip later copies", so only STRICTLY OLDER messages count.
+    Without it, two identical messages in one batch exclude each other by id and
+    both are skipped, losing the announcement entirely.
     """
     if _is_media_only(text):
         return ProcessingStatus.SKIPPED_EMPTY
@@ -124,6 +130,8 @@ def classify_skip(
             RawMessage.text_hash == digest,
             RawMessage.created_at >= cutoff,
         )
+        if before is not None:
+            query = query.filter(RawMessage.created_at < before)
         if exclude_message_id is not None:
             query = query.filter(RawMessage.id != exclude_message_id)
         if query.first():

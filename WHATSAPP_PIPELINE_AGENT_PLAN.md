@@ -1,5 +1,12 @@
 # WhatsApp Pipeline — Agent Delegation Plan (remaining work)
 
+> **STALE SECTION WARNING.** §1 below describes the tree *before* Wave 2. Wave 2
+> is now complete (uncommitted) and the test baseline is **246**, not 213.
+> Read `WHATSAPP_PIPELINE_HANDOFF.md` first — it is the current source of truth
+> for state, and its §4 lists required amendments to the agent prompts in §4, §5
+> and §7 of this file. The prompts and the file-ownership boundaries here are
+> still authoritative; the state description is not.
+
 Companion to `WHATSAPP_PIPELINE_REVIEW.md` (the audit) and `WHATSAPP_PIPELINE_STEPS_3_TO_7.md` (the spec). **This file is the work-assignment plan.** It says what is done, what is left, who does which part, and the exact file boundaries that keep agents from colliding.
 
 Read §1 and §2 before assigning anything.
@@ -178,7 +185,16 @@ backend/tests/unit/test_deduplication.py                (new)
 
 ---
 
-## 6. Wave 2 — the lead, sequential (do NOT delegate)
+## 6. Wave 2 — the lead, sequential (do NOT delegate) — **COMPLETE (uncommitted)**
+
+> All seven bullets below are done. See `WHATSAPP_PIPELINE_HANDOFF.md` §2 for what
+> shipped, including two deviations: `calculate_scores` had live callers in
+> `events_routes.py` and `ocr_routes.py` (converted to derived urgency rather than
+> deleted blind), and `setfit_classifier_service.py` had a live consumer in
+> `model_verification_service.py` (moved to `backend/training/` rather than
+> deleted). A new **Wave 2.5** follow-up is required after Agent SCHEMA lands —
+> the `UNIQUE (user_id, source_raw_message_id, event_index)` constraint does
+> nothing until the writer populates those columns. See handoff §4.3.
 
 One owner, one commit per bullet. These all edit the same three files, so parallelising them creates conflicting rewrites of the same functions.
 
