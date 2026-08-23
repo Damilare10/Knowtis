@@ -3,8 +3,11 @@ Zustand State Store for Knowtis Frontend
 Wired to the real backend API. No dev mock user fallback.
 */
 import { create } from 'zustand';
-import { authApi, eventsApi, remindersApi, whatsappApi, notificationsApi, aiApi, widgetApi, billingApi, type ChatMessage } from './api';
+import { authApi, eventsApi, remindersApi, whatsappApi, notificationsApi, aiApi, widgetApi, billingApi, trainingApi, type ChatMessage } from './api';
 import { persistWidgetAuth, clearWidgetAuth } from './widget-auth';
+import { initNativeNotifications, syncInAppNotificationsToNativeStatusBar } from './native-notifications';
+import { setPersistentItem, getPersistentItem, removePersistentItem, getPersistentItemSync } from './persistent-storage';
+import { Preferences } from '@capacitor/preferences';
 import type { AcademicEvent, EventType } from './events';
 
 export type { AcademicEvent, EventType };
@@ -16,9 +19,11 @@ interface User {
   full_name: string;
   is_premium: boolean;
   tier: string;
+  role?: string;
   created_at?: string;
   whatsapp_number?: string;
   ai_tokens_received?: number;
+  notification_advance_hours?: number;
 }
 
 interface WhatsAppGroup {
@@ -28,6 +33,9 @@ interface WhatsAppGroup {
   coverage_state: 'ACTIVE' | 'DEGRADED' | 'PAUSED' | 'RECOVERING';
   join_date: string;
   is_active: boolean;
+  monitored_keywords?: string[];
+  monitored_courses?: string[];
+  filter_mode?: 'ALL' | 'FILTERED';
 }
 
 interface Reminder {
@@ -68,10 +76,33 @@ type RegisterPayload = {
 type EventFilters = { skip?: number; limit?: number; event_type?: string; course_code?: string };
 type EventPayload = Partial<AcademicEvent> & Record<string, unknown>;
 
-function getErrorMessage(err: unknown, fallback: string) {
+function getErrorMessage(err: unknown, fallback: string): string {
   if (typeof err === 'object' && err !== null && 'response' in err) {
-    const response = (err as { response?: { data?: { detail?: string } } }).response;
-    return response?.data?.detail || fallback;
+    const res = (err as { response?: { data?: { detail?: unknown; message?: unknown } } }).response;
+    const detail = res?.data?.detail ?? res?.data?.message;
+    if (typeof detail === 'string') {
+      return detail;
+    }
+    if (Array.isArray(detail)) {
+      const msgs = detail
+        .map((item) => {
+          if (typeof item === 'object' && item !== null && 'msg' in item) {
+            return String((item as { msg: unknown }).msg);
+          }
+          return typeof item === 'string' ? item : '';
+        })
+        .filter(Boolean);
+      if (msgs.length > 0) return msgs.join('. ');
+    }
+    if (typeof detail === 'object' && detail !== null) {
+      if ('msg' in detail && typeof (detail as { msg: unknown }).msg === 'string') {
+        return (detail as { msg: string }).msg;
+      }
+      return JSON.stringify(detail);
+    }
+  }
+  if (err instanceof Error) {
+    return err.message;
   }
   return fallback;
 }
@@ -84,8 +115,10 @@ function normalizeUser(raw: Record<string, unknown>): User {
     full_name: String(raw.full_name ?? raw.username ?? 'Student'),
     is_premium: Boolean(raw.is_premium ?? raw.tier === 'premium'),
     tier: String(raw.tier ?? 'free'),
+    role: raw.role ? String(raw.role) : undefined,
     created_at: raw.created_at ? String(raw.created_at) : undefined,
     whatsapp_number: raw.whatsapp_number ? String(raw.whatsapp_number) : undefined,
+    notification_advance_hours: typeof raw.notification_advance_hours === 'number' ? raw.notification_advance_hours : 3,
   };
 }
 
@@ -99,6 +132,8 @@ interface AppState {
 
   events: AcademicEvent[];
   totalEvents: number;
+  eventsTruncated: boolean;
+  eventsPlanLimit: number | null;
 
   groups: WhatsAppGroup[];
   reminders: Reminder[];
@@ -131,11 +166,15 @@ interface AppState {
 
   fetchEvents: (filters?: EventFilters) => Promise<void>;
   createEvent: (data: EventPayload) => Promise<boolean>;
+  updateEvent: (id: string, patch: Partial<AcademicEvent>) => Promise<boolean>;
+  confirmEvent: (id: string) => Promise<boolean>;
+  dismissEvent: (id: string) => Promise<boolean>;
   deleteEvent: (id: string) => Promise<void>;
 
   fetchGroups: () => Promise<void>;
   joinGroup: (inviteLink: string) => Promise<boolean>;
   unlinkGroup: (id: string) => Promise<void>;
+  updateGroupFilters: (id: string, data: { monitored_keywords?: string[]; monitored_courses?: string[]; filter_mode?: string }) => Promise<boolean>;
 
   fetchReminders: () => Promise<void>;
   createReminder: (eventId: string, daysBefore?: number) => Promise<boolean>;
@@ -169,6 +208,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   events: [],
   totalEvents: 0,
+  eventsTruncated: false,
+  eventsPlanLimit: null,
 
   groups: [],
   reminders: [],
@@ -201,20 +242,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const response = await authApi.login(credentials);
-      const { access_token, user } = response.data;
-      localStorage.setItem('knowtis_token', access_token);
-      localStorage.setItem('knowtis_onboarded', 'true');
+      const { access_token, refresh_token, user } = response.data;
+      const normalizedUser = normalizeUser(user as Record<string, unknown>);
+      await setPersistentItem('knowtis_token', access_token);
+      await setPersistentItem('knowtis_user', JSON.stringify(normalizedUser));
+      if (refresh_token) {
+        await setPersistentItem('knowtis_refresh_token', refresh_token);
+      }
       persistWidgetAuth(access_token);
       set({
         token: access_token,
-        user: normalizeUser(user as Record<string, unknown>),
+        user: normalizedUser,
         isAuthenticated: true,
         loading: false,
       });
 
       get().fetchGroups();
       get().fetchEvents();
+      get().fetchNotifications();
       get().fetchUnreadCount();
+      try {
+        initNativeNotifications((fcmToken) => {
+          authApi.updateProfile({ fcm_token: fcmToken }).catch(() => {});
+        });
+      } catch { /* non-fatal */ }
       return true;
     } catch (err: unknown) {
       set({
@@ -229,19 +280,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const response = await authApi.register(data);
-      const { access_token, user } = response.data;
-      localStorage.setItem('knowtis_token', access_token);
-      localStorage.removeItem('knowtis_onboarded');
+      const { access_token, refresh_token, user } = response.data;
+      const normalizedUser = normalizeUser(user as Record<string, unknown>);
+      await setPersistentItem('knowtis_token', access_token);
+      await setPersistentItem('knowtis_user', JSON.stringify(normalizedUser));
+      if (refresh_token) {
+        await setPersistentItem('knowtis_refresh_token', refresh_token);
+      }
       persistWidgetAuth(access_token);
       set({
         token: access_token,
-        user: normalizeUser(user as Record<string, unknown>),
+        user: normalizedUser,
         isAuthenticated: true,
         loading: false,
       });
 
       get().fetchGroups();
       get().fetchEvents();
+      get().fetchNotifications();
+      get().fetchUnreadCount();
+      try {
+        initNativeNotifications((fcmToken) => {
+          authApi.updateProfile({ fcm_token: fcmToken }).catch(() => {});
+        });
+      } catch { /* non-fatal */ }
       return true;
     } catch (err: unknown) {
       set({
@@ -253,7 +315,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   logout: () => {
-    localStorage.removeItem('knowtis_token');
+    removePersistentItem('knowtis_token');
+    removePersistentItem('knowtis_refresh_token');
+    removePersistentItem('knowtis_user');
+    // keep knowtis_onboarded - it marks device as having completed onboarding
     clearWidgetAuth();
     set({
       user: null,
@@ -275,26 +340,57 @@ export const useAppStore = create<AppState>((set, get) => ({
   checkAuth: async () => {
     if (typeof window === 'undefined') return;
 
-    // ── HARD SAFETY NET ──────────────────────────────────────────────────
-    // `hasHydrated` MUST flip to true synchronously, BEFORE any network
-    // call. Otherwise a hanging request (backend down, no axios timeout)
-    // would leave the splash screen up forever. The user fetch below
-    // is a *refresh*, not a gate; if it fails the LayoutWrapper's redirect
-    // effect will send the user to /login on its own.
-    const token = localStorage.getItem('knowtis_token');
+    // 1. IMMEDIATE: Try synchronous localStorage first (instant)
+    let token = getPersistentItemSync('knowtis_token');
+    let user: User | null = null;
+
+    if (token) {
+      try {
+        const userStr = localStorage.getItem('knowtis_user');
+        if (userStr) {
+          user = JSON.parse(userStr) as User;
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
+    // 2. If no token in localStorage, try async Preferences (Capacitor)
+    if (!token) {
+      token = await getPersistentItem('knowtis_token');
+      if (token) {
+        try {
+          const userStr = await Preferences.get({ key: 'knowtis_user' });
+          if (userStr.value) {
+            user = JSON.parse(userStr.value) as User;
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
+    // 3. INSTANT HYDRATION: Set authenticated state immediately if we have token
     set({
       token,
+      user,
+      isAuthenticated: !!token,
       hasHydrated: true,
       loading: false,
     });
 
+    if (token) {
+      try {
+        initNativeNotifications((fcmToken) => {
+          authApi.updateProfile({ fcm_token: fcmToken }).catch(() => {});
+        });
+      } catch { /* ignore */ }
+    }
+
+    // 4. NO TOKEN? We're done - stay unauthenticated
     if (!token) {
       set({ isAuthenticated: false, user: null });
       return;
     }
 
-    // Race the auth probe against a 6-second ceiling so a flaky/down
-    // backend can never wedge the UI in an "initializing" state.
+    // 5. BACKGROUND VALIDATION: Probe backend silently
+    // Race against 8s timeout; never block UI
     const probe = (async () => {
       try {
         const response = await authApi.getCurrentUser();
@@ -304,39 +400,47 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     })();
     const ceiling = new Promise<{ ok: false; reason: 'timeout' }>((resolve) =>
-      setTimeout(() => resolve({ ok: false, reason: 'timeout' }), 6000),
+      setTimeout(() => resolve({ ok: false, reason: 'timeout' }), 8000),
     );
 
     const result = await Promise.race([probe, ceiling]);
 
     if (result.ok) {
+      // Token valid - update user with fresh data
       set({
         user: normalizeUser(result.response.data as Record<string, unknown>),
         isAuthenticated: true,
       });
-      // Best-effort background refresh; failures are non-fatal.
+      // Background refresh (non-blocking)
       try { await get().fetchGroups(); } catch { /* non-fatal */ }
       try { await get().fetchEvents(); } catch { /* non-fatal */ }
+      try { await get().fetchNotifications(); } catch { /* non-fatal */ }
       try { await get().fetchUnreadCount(); } catch { /* non-fatal */ }
+      try {
+        initNativeNotifications((fcmToken) => {
+          authApi.updateProfile({ fcm_token: fcmToken }).catch(() => {});
+        });
+      } catch { /* non-fatal */ }
       return;
     }
 
-    // Either the request timed out (backend not reachable within 6s) or it
-    // errored (network / 5xx / 401). In both cases we clear the session so
-    // the user lands on /login and can sign in again once the backend is up.
-    console.warn(
-      result.reason === 'timeout'
-        ? 'Auth check timed out after 6s; clearing session.'
-        : 'Auth check failed; clearing session.',
-      result.reason === 'error' ? result.err : '',
-    );
-    localStorage.removeItem('knowtis_token');
-    clearWidgetAuth();
-    set({
-      user: null,
-      token: null,
-      isAuthenticated: false,
-    });
+    if (result.reason === 'error') {
+      const status = (result.err as { response?: { status?: number } })?.response?.status;
+      if (status === 401) {
+        // ONLY redirect on explicit 401 (token expired/revoked)
+        await removePersistentItem('knowtis_token');
+        await removePersistentItem('knowtis_refresh_token');
+        await removePersistentItem('knowtis_user');
+        clearWidgetAuth();
+        set({ user: null, token: null, isAuthenticated: false });
+      } else {
+        // Network error / 5xx - KEEP local session (offline mode)
+        set({ isAuthenticated: true });
+      }
+    } else {
+      // Timeout - KEEP local session (offline mode)
+      set({ isAuthenticated: true });
+    }
   },
 
   // Events Actions
@@ -346,7 +450,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       const items = (response.data.items || []) as AcademicEvent[];
       set({
         events: items,
-        totalEvents: response.data.total || 0,
+        totalEvents: response.data.total ?? items.length,
+        eventsTruncated: Boolean(response.data.truncated),
+        eventsPlanLimit: response.data.plan_limit ?? null,
       });
     } catch (err) {
       console.error('Failed to fetch events', err);
@@ -360,6 +466,56 @@ export const useAppStore = create<AppState>((set, get) => ({
       return true;
     } catch (err: unknown) {
       set({ error: getErrorMessage(err, 'Failed to create event.') });
+      return false;
+    }
+  },
+
+  updateEvent: async (id, patch) => {
+    try {
+      const response = await eventsApi.update(id, patch as Record<string, unknown>);
+      const updated = response.data as AcademicEvent;
+      set((state) => ({
+        events: state.events.map((e) => (e.id === id ? { ...e, ...updated, needs_review: false } : e)),
+      }));
+      return true;
+    } catch (err: unknown) {
+      set({ error: getErrorMessage(err, 'Failed to update event.') });
+      return false;
+    }
+  },
+
+  confirmEvent: async (id) => {
+    // Optimistic update
+    set((state) => ({
+      events: state.events.map((e) => (e.id === id ? { ...e, needs_review: false } : e)),
+    }));
+    try {
+      await trainingApi.submitFeedback({
+        academic_event_id: id,
+        feedback_type: 'confirmed_correct',
+      });
+      return true;
+    } catch (err) {
+      console.error('Failed to confirm event', err);
+      return false;
+    }
+  },
+
+  dismissEvent: async (id) => {
+    // Optimistically remove from list
+    set((state) => ({
+      events: state.events.filter((e) => e.id !== id),
+      totalEvents: Math.max(0, state.totalEvents - 1),
+    }));
+    try {
+      await trainingApi.submitFeedback({
+        academic_event_id: id,
+        feedback_type: 'reported_noise',
+      });
+      await eventsApi.delete(id);
+      return true;
+    } catch (err) {
+      console.error('Failed to dismiss event', err);
       return false;
     }
   },
@@ -408,6 +564,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  updateGroupFilters: async (id, data) => {
+    try {
+      await whatsappApi.updateFilters(id, data);
+      await get().fetchGroups();
+      return true;
+    } catch (err: unknown) {
+      set({ error: getErrorMessage(err, 'Failed to update group filters.') });
+      return false;
+    }
+  },
+
   // Reminders Actions
   fetchReminders: async () => {
     try {
@@ -451,7 +618,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   fetchNotifications: async () => {
     try {
       const response = await notificationsApi.list();
-      set({ notifications: (response.data || []) as NotificationItem[] });
+      const items = (response.data || []) as NotificationItem[];
+      set({ notifications: items });
+      syncInAppNotificationsToNativeStatusBar(items);
     } catch (err) {
       console.error('Failed to fetch notifications', err);
     }
@@ -528,7 +697,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error('AI chat request failed', err);
       set((s) => ({
         aiMessages: s.aiMessages.filter((m) => m.id !== tempId),
-        aiChatError: 'Could not reach Knowtis AI. Please try again.',
+        aiChatError: getErrorMessage(err, 'Could not reach Knowtis AI. Please try again.'),
       }));
     } finally {
       set({ aiSending: false });
@@ -556,8 +725,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const response = await authApi.updateProfile(data);
+      const normalizedUser = normalizeUser(response.data as Record<string, unknown>);
+      await setPersistentItem('knowtis_user', JSON.stringify(normalizedUser));
       set({
-        user: normalizeUser(response.data as Record<string, unknown>),
+        user: normalizedUser,
         loading: false,
       });
       return true;

@@ -9,19 +9,34 @@ import {
 } from 'lucide-react';
 
 export type EventType = 'DEADLINE' | 'EVENT' | 'ALERT' | 'INFO';
+export type EventStatus = 'ACTIVE' | 'CANCELLED' | 'SUPERSEDED';
+export type DatePrecision = 'exact' | 'day_only' | 'unknown';
 
 export interface AcademicEvent {
   id: string;
+  user_id?: string;
+  group_id?: string;
+  group_name?: string;
+  source_group_jid?: string;
+  source_message_id?: string;
   event_type: EventType;
   course_code?: string;
   title: string;
   description?: string;
   venue?: string;
   date_time?: string;
+  date_precision?: DatePrecision;
+  status?: EventStatus;
+  needs_review?: boolean;
   urgency_score: number;
   confidence_score: number;
+  relevance_score?: number;
+  actionability_score?: number;
   is_duplicate: boolean;
+  is_archived?: boolean;
+  revisions?: any[];
   created_at: string;
+  updated_at?: string;
 }
 
 export const EVENT_TYPES: EventType[] = ['DEADLINE', 'ALERT', 'EVENT', 'INFO'];
@@ -49,13 +64,13 @@ export const TYPE_STYLE: Record<EventType, { bg: string; fg: string }> = {
   INFO: { bg: 'var(--info-dim)', fg: 'var(--info)' },
 };
 
+const LAGOS_FORMAT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Africa/Lagos",
+  year: "numeric", month: "numeric", day: "numeric",
+});
+
 function startOfDay(d: Date): number {
-  // Compute midnight in the app timezone (Africa/Lagos), not the browser's
-  // local zone, so day-boundary math agrees with the rest of the UI.
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Africa/Lagos",
-    year: "numeric", month: "numeric", day: "numeric",
-  }).formatToParts(d);
+  const parts = LAGOS_FORMAT.formatToParts(d);
   const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
   return new Date(get("year"), get("month") - 1, get("day"), 0, 0, 0, 0).getTime();
 }
@@ -69,27 +84,37 @@ export function daysLeft(iso?: string): number {
   return Math.round((startOfDay(new Date(iso)) - startOfDay(new Date())) / 86_400_000);
 }
 
-export function formatDateTime(iso?: string): string {
-  if (!iso) return 'No date set';
+export function formatDateTime(iso?: string, precision?: DatePrecision): string {
+  if (!iso) return precision === 'unknown' ? 'Date TBD' : 'No date set';
   const d = new Date(iso);
-  const timeStr = d.toLocaleTimeString('en-US', {
-    timeZone: 'Africa/Lagos', hour: 'numeric', minute: '2-digit', hour12: true,
-  });
+  if (isNaN(d.getTime())) return 'No date set';
+
   const dateStr = d.toLocaleDateString('en-US', {
     timeZone: 'Africa/Lagos', month: 'short', day: 'numeric',
   });
+
+  // If precision is day_only, suppress time entirely
+  if (precision === 'day_only') {
+    return dateStr;
+  }
+
+  const timeStr = d.toLocaleTimeString('en-US', {
+    timeZone: 'Africa/Lagos', hour: 'numeric', minute: '2-digit', hour12: true,
+  });
+
   // Treat 9 AM as the default "no specific time"; suppress it for cleaner display.
   if (timeStr === '9:00 AM') return dateStr;
   return `${dateStr} · ${timeStr}`;
 }
 
-export function relativeDay(iso?: string): string {
+export function relativeDay(iso?: string, precision?: DatePrecision): string {
+  if (!iso) return precision === 'unknown' ? 'Date TBD' : 'No date set';
   const days = daysLeft(iso);
-  if (days < 0) return `${Math.abs(days)}d overdue`;
+  if (days < 0) return `Due ${Math.abs(days)}d ago`;
   if (days === 0) return 'Today';
   if (days === 1) return 'Tomorrow';
   if (days <= 6) return `In ${days} days`;
-  return formatDateTime(iso);
+  return formatDateTime(iso, precision);
 }
 
 /* Urgency tone used by list/card UI (solid semantic colors). */
@@ -115,7 +140,17 @@ export function cascadeTone(e: AcademicEvent): { bg: string; label: string } {
   return { bg: 'var(--mint)', label: 'Low urgency' };
 }
 
-/* Sort events by soonest deadline (overdue first, undated last). */
+/* Sort upcoming deadlines first, then past deadlines by nearest date. */
 export function sortBySoonest(a: AcademicEvent, b: AcademicEvent): number {
-  return daysLeft(a.date_time) - daysLeft(b.date_time);
+  const da = daysLeft(a.date_time);
+  const db = daysLeft(b.date_time);
+
+  const aPast = Number.isFinite(da) && da < 0;
+  const bPast = Number.isFinite(db) && db < 0;
+
+  if (aPast !== bPast) return aPast ? 1 : -1;
+
+  const aTime = a.date_time ? new Date(a.date_time).getTime() : Infinity;
+  const bTime = b.date_time ? new Date(b.date_time).getTime() : Infinity;
+  return aTime - bTime;
 }

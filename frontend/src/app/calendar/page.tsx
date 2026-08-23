@@ -208,8 +208,8 @@ export default function CalendarPage() {
                   <div key={j} className="clay-card flex items-center gap-3.5 p-4 sm:p-5 transition-transform hover:-translate-y-0.5">
                     <div className="w-1.5 h-12 rounded-full shrink-0" style={{ background: color }} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm sm:text-[15px] font-black tracking-[-0.01em] text-[var(--text-1)] truncate">{item.title}</p>
-                      <p className="text-xs text-[var(--text-3)] font-semibold mt-1 flex items-center gap-1.5">
+                      <p className="text-sm sm:text-[15px] font-black tracking-[-0.01em] text-[var(--text-1)] break-words whitespace-normal">{item.title}</p>
+                      <p className="text-xs text-[var(--text-3)] font-semibold mt-1 flex items-center gap-1.5 flex-wrap">
                         {item.course_code ? `${item.course_code} · ` : ''}
                         {isMidnight ? 'All day' : time}
                         {item.venue ? ` · ${item.venue}` : ''}

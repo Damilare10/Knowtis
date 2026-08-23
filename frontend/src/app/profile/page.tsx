@@ -4,15 +4,17 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
+import { usePerformanceMode } from '@/lib/performance-mode';
 import ProfileAvatar from '@/components/profile-avatar';
 import {
   Moon, ChevronRight,
   Smartphone, LogOut, Edit3, Settings,
   ArrowLeft, Check, Camera, HelpCircle, MessageSquare,
-  Star, Trash2, ShieldAlert, Sparkles, Calendar,
-  X, Eye, EyeOff, Phone
+  Star, Trash2, ShieldAlert, Sparkles,
+  X, Eye, EyeOff, Phone, Gauge, Bell
 } from 'lucide-react';
 import AndroidWidgetPreview from '@/components/dashboard/android-widget-preview';
+import { openAdminDashboard } from '@/lib/api';
 
 type ViewState = 'default' | 'edit_profile' | 'subscription' | 'quiet_hours' | 'settings' | 'widget';
 
@@ -71,7 +73,6 @@ const PLAN_FEATURES: PlanFeature[] = [
   { label: 'Confidence-level classification', free: true, pro: true },
   { label: 'Basic text notifications', free: true, pro: true },
   { label: 'Real-time push alerts & custom alarms', free: false, pro: true },
-  { label: 'Google & Outlook Calendar sync', free: false, pro: true },
   { label: 'Smart photo scanning for timetables & PDFs', free: false, pro: true },
 ];
 
@@ -100,6 +101,7 @@ function SettingsRow({ icon: Icon, label, value, color = 'var(--primary)', onCli
   const dim = danger ? 'var(--danger-dim)' : dimFor(color);
   return (
     <button
+      type="button"
       onClick={onClick}
       className={`w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#FBFBFA]/60 active:bg-[#FBFBFA] transition-colors text-left ${danger ? 'text-[var(--danger)]' : ''}`}
     >
@@ -130,6 +132,8 @@ export default function ProfilePage() {
     activeSubscription, fetchActiveSubscription,
     widgetData, fetchWidgetData,
   } = useAppStore();
+
+  const { performanceMode, setPerformanceMode } = usePerformanceMode();
 
   React.useEffect(() => {
     fetchActiveSubscription();
@@ -162,6 +166,9 @@ export default function ProfilePage() {
   const [quietDays, setQuietDays] = useState<string[]>(stored.quietDays ?? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
   const [allowHighPriority, setAllowHighPriority] = useState(stored.allowHighPriority ?? true);
   const [weekendQuiet, setWeekendQuiet] = useState(stored.weekendQuiet ?? false);
+
+  // Notification advance hours (synced from user profile)
+  const [notificationAdvanceHours, setNotificationAdvanceHours] = useState(user?.notification_advance_hours ?? 3);
 
   // Subscription States
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
@@ -201,6 +208,7 @@ export default function ProfilePage() {
       email: email,
       whatsapp_number: whatsappNumber,
       password: password || undefined,
+      notification_advance_hours: notificationAdvanceHours,
     });
     if (success) {
       setPassword('');
@@ -275,7 +283,7 @@ export default function ProfilePage() {
         )}
       </AnimatePresence>
 
-      <AnimatePresence mode="wait">
+      <AnimatePresence>
         {/* ── 1. DEFAULT PROFILE VIEW ── */}
         {activeView === 'default' && (
           <motion.div
@@ -292,6 +300,7 @@ export default function ProfilePage() {
                 <p className="page-copy mt-1.5">Manage your identity, settings, and notifications.</p>
               </div>
               <button
+                type="button"
                 onClick={() => setActiveView('settings')}
                 className="w-10 h-10 rounded-[18px] bg-white border border-[var(--border)] flex items-center justify-center shadow-sm hover:bg-[var(--surface-2)] transition-all active:scale-95"
               >
@@ -320,6 +329,7 @@ export default function ProfilePage() {
                 </div>
               </div>
               <button
+                type="button"
                 onClick={openEditProfile}
                 className="w-9 h-9 rounded-[18px] bg-[var(--surface-2)] hover:bg-white border border-[var(--border)] flex items-center justify-center shrink-0 transition-all hover:shadow-sm active:scale-95"
               >
@@ -343,7 +353,7 @@ export default function ProfilePage() {
                     </div>
                     <p className="text-base font-black tracking-tight mt-1">Unlock unlimited groups, calendar sync & smart photo scanning</p>
                   </div>
-                  <div className="w-10 h-10 rounded-full bg-[var(--primary)]/20 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:bg-[var(--primary)]/30 transition-colors">
+                  <div className="w-10 h-10 rounded-full bg-[var(--primary)]/20 flex items-center justify-center shrink-0 group-hover:bg-[var(--primary)]/30 transition-colors">
                     <ChevronRight className="w-5 h-5 text-white" />
                   </div>
                 </div>
@@ -355,13 +365,6 @@ export default function ProfilePage() {
               <div>
                 <p className="text-[11px] font-black uppercase tracking-wider text-[var(--text-3)] mb-2 px-1">Settings & Preferences</p>
                 <div className="clay-card overflow-hidden divide-y divide-[var(--border-soft)]">
-                  <SettingsRow
-                    icon={Edit3}
-                    label="Edit Profile"
-                    value="Update name, email, and password"
-                    color="var(--primary)"
-                    onClick={openEditProfile}
-                  />
                   <SettingsRow
                     icon={Star}
                     label="Subscription Plan"
@@ -392,7 +395,7 @@ export default function ProfilePage() {
                   <SettingsRow
                     icon={MessageSquare}
                     label="Connect WhatsApp"
-                    value={isWhatsAppConnected ? "Connected" : "Link a class chat to monitor"}
+                    value={isWhatsAppConnected ? "Connected" : "Let's Knowtis identify you in groups"}
                     color="var(--success)"
                     badge={isWhatsAppConnected ? "Connected" : undefined}
                     onClick={openConnectWhatsApp}
@@ -405,25 +408,31 @@ export default function ProfilePage() {
                     onClick={() => router.push('/groups')}
                   />
                   <SettingsRow
-                    icon={Calendar}
-                    label="Calendar Sync"
-                    value={isPremium ? "Google & Outlook calendar active" : "Premium feature"}
-                    color="var(--info)"
-                    onClick={() => router.push('/calendar')}
-                  />
-                  <SettingsRow
                     icon={Smartphone}
                     label="Android Widget Preview"
                     value="Configure and preview your home screen widget"
                     color="var(--primary)"
                     onClick={() => setActiveView('widget')}
                   />
+                  {(user?.role === 'admin' || user?.role === 'ADMIN') && (
+                    <SettingsRow
+                      icon={ShieldAlert}
+                      label="Admin Dashboard"
+                      value="Open owner command center in browser"
+                      color="var(--primary)"
+                      badge="Admin"
+                      onClick={() => {
+                        openAdminDashboard();
+                      }}
+                    />
+                  )}
                 </div>
               </div>
 
               {/* Log Out */}
               <div className="pt-2">
                 <button
+                  type="button"
                   onClick={() => setShowLogoutConfirm(true)}
                   className="w-full flex items-center gap-3 px-4 py-4 rounded-[22px] bg-white border border-[var(--border)] hover:bg-[var(--danger-dim)] hover:border-[var(--danger)]/20 transition-all text-left group shadow-sm active:scale-[0.99]"
                 >
@@ -464,6 +473,7 @@ export default function ProfilePage() {
               </button>
               <h2 className="text-base font-black text-[var(--text-1)]">Edit Profile</h2>
               <button
+                type="button"
                 onClick={handleSaveProfile}
                 disabled={loading}
                 className="text-xs font-black uppercase tracking-wider text-[var(--primary)] hover:text-[var(--primary)]/80 disabled:text-[var(--text-3)]"
@@ -553,6 +563,22 @@ export default function ProfilePage() {
                   </div>
                   <p className="text-[10px] text-[var(--text-3)] font-semibold mt-1 px-1">Leave empty to keep current password</p>
                 </div>
+
+                <div>
+                  <label className="text-[11px] font-black uppercase tracking-wider text-[var(--text-3)] mb-1.5 block px-1">Notification Advance Notice</label>
+                  <select
+                    value={notificationAdvanceHours}
+                    onChange={(e) => setNotificationAdvanceHours(parseInt(e.target.value, 10))}
+                    className="w-full h-12 px-4 rounded-[18px] border border-[var(--border)] bg-white text-sm font-semibold text-[var(--text-1)] focus:border-[var(--primary)] focus:outline-none transition-all shadow-sm"
+                  >
+                    {[0, 1, 2, 3, 6, 12, 24].map((h) => (
+                      <option key={h} value={h}>
+                        {h === 0 ? 'At deadline time' : `${h} hour${h !== 1 ? 's' : ''} before`}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-[var(--text-3)] font-semibold mt-1 px-1">How many hours before a deadline to send a notification</p>
+                </div>
               </div>
 
               <div className="pt-4">
@@ -580,6 +606,7 @@ export default function ProfilePage() {
           >
             <div className="flex items-center justify-between">
               <button
+                type="button"
                 onClick={() => setActiveView('default')}
                 className="w-9 h-9 rounded-[18px] bg-white border border-[var(--border)] flex items-center justify-center shrink-0 shadow-sm hover:bg-[var(--surface-2)] transition-all active:scale-95"
               >
@@ -593,12 +620,14 @@ export default function ProfilePage() {
             <div className="flex justify-center">
               <div className="bg-[var(--surface-2)] p-1 rounded-full border border-[var(--border)] flex items-center gap-1 relative">
                 <button
+                  type="button"
                   onClick={() => setBillingCycle('monthly')}
                   className={`px-4 py-2 text-xs font-black rounded-[14px] transition-all ${billingCycle === 'monthly' ? 'bg-white text-[var(--text-1)] shadow-sm' : 'text-[var(--text-3)]'}`}
                 >
                   Monthly
                 </button>
                 <button
+                  type="button"
                   onClick={() => setBillingCycle('yearly')}
                   className={`px-4 py-2 text-xs font-black rounded-[14px] transition-all flex items-center gap-1.5 ${billingCycle === 'yearly' ? 'bg-white text-[var(--text-1)] shadow-sm' : 'text-[var(--text-3)]'}`}
                 >
@@ -705,15 +734,17 @@ export default function ProfilePage() {
             transition={{ duration: 0.25 }}
             className="space-y-5"
           >
-            <div className="flex items-center justify-between">
+<div className="flex items-center justify-between">
               <button
-                onClick={() => { saveQuietHours(); setActiveView('default'); }}
+                type="button"
+                onClick={() => setActiveView('default')}
                 className="w-9 h-9 rounded-[18px] bg-white border border-[var(--border)] flex items-center justify-center shrink-0 shadow-sm hover:bg-[var(--surface-2)] transition-all active:scale-95"
               >
                 <ArrowLeft className="w-4 h-4 text-[var(--text-2)]" />
               </button>
               <h2 className="text-base font-black text-[var(--text-1)] mx-auto">Quiet hours</h2>
               <button
+                type="button"
                 onClick={() => { saveQuietHours(); setActiveView('default'); }}
                 className="text-xs font-black uppercase tracking-wider text-[var(--primary)] hover:text-[var(--primary)]/80"
               >
@@ -728,12 +759,17 @@ export default function ProfilePage() {
                 <p className="text-xs text-[var(--text-3)] font-semibold mt-0.5">Knowtis won&apos;t notify you during quiet times</p>
               </div>
               <button
+                type="button"
                 onClick={() => setEnableQuietHours(v => !v)}
                 role="switch"
                 aria-checked={enableQuietHours}
-                className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${enableQuietHours ? 'bg-[var(--primary)]' : 'bg-[#E9E9E6]'}`}
+                className="relative w-[48px] h-[24px] rounded-full transition-colors duration-200 shrink-0 border border-transparent"
+                style={{ backgroundColor: enableQuietHours ? '#FF5A36' : '#E9E9E6' }}
               >
-                <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${enableQuietHours ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                <div 
+                  className="absolute top-[1px] w-[20px] h-[20px] rounded-full bg-white shadow-sm transition-all duration-200"
+                  style={{ left: enableQuietHours ? '25px' : '2px' }}
+                />
               </button>
             </div>
 
@@ -807,12 +843,17 @@ export default function ProfilePage() {
                       <p className="text-xs text-[var(--text-3)] font-semibold mt-0.5">Still notify for urgent exams/deadlines</p>
                     </div>
                     <button
+                      type="button"
                       onClick={() => setAllowHighPriority(v => !v)}
                       role="switch"
                       aria-checked={allowHighPriority}
-                      className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${allowHighPriority ? 'bg-[var(--primary)]' : 'bg-[#E9E9E6]'}`}
+                      className="relative w-[48px] h-[24px] rounded-full transition-colors duration-200 shrink-0 border border-transparent"
+                      style={{ backgroundColor: allowHighPriority ? '#FF5A36' : '#E9E9E6' }}
                     >
-                      <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${allowHighPriority ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                      <div 
+                        className="absolute top-[1px] w-[20px] h-[20px] rounded-full bg-white shadow-sm transition-all duration-200"
+                        style={{ left: allowHighPriority ? '25px' : '2px' }}
+                      />
                     </button>
                   </div>
 
@@ -822,12 +863,17 @@ export default function ProfilePage() {
                       <p className="text-xs text-[var(--text-3)] font-semibold mt-0.5">Apply quiet hours schedule on Sat & Sun</p>
                     </div>
                     <button
+                      type="button"
                       onClick={() => setWeekendQuiet(v => !v)}
                       role="switch"
                       aria-checked={weekendQuiet}
-                      className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${weekendQuiet ? 'bg-[var(--primary)]' : 'bg-[#E9E9E6]'}`}
+                      className="relative w-[48px] h-[24px] rounded-full transition-colors duration-200 shrink-0 border border-transparent"
+                      style={{ backgroundColor: weekendQuiet ? '#FF5A36' : '#E9E9E6' }}
                     >
-                      <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${weekendQuiet ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                      <div 
+                        className="absolute top-[1px] w-[20px] h-[20px] rounded-full bg-white shadow-sm transition-all duration-200"
+                        style={{ left: weekendQuiet ? '25px' : '2px' }}
+                      />
                     </button>
                   </div>
                 </div>
@@ -865,13 +911,6 @@ export default function ProfilePage() {
               <p className="text-[11px] font-black uppercase tracking-wider text-[var(--text-3)] mb-2 px-1">General</p>
               <div className="clay-card overflow-hidden divide-y divide-[var(--border-soft)]">
                 <SettingsRow
-                  icon={Edit3}
-                  label="Edit Profile"
-                  value="Name, email, and password"
-                  color="var(--primary)"
-                  onClick={openEditProfile}
-                />
-                <SettingsRow
                   icon={Star}
                   label="Subscription"
                   value={isPremium ? "Knowtis Pro ($4.99/mo)" : "Free tier — 2 groups"}
@@ -893,6 +932,56 @@ export default function ProfilePage() {
                   color="var(--primary)"
                   onClick={() => setActiveView('widget')}
                 />
+                {/* Notification Advance Hours Setting */}
+                <div className="flex items-center gap-3 px-4 py-3.5">
+                  <div className="w-9 h-9 clay-icon flex items-center justify-center shrink-0 rounded-[18px]" style={{ background: 'var(--info-dim)' }}>
+                    <Bell className="w-[18px] h-[18px]" style={{ color: 'var(--info)' }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-[var(--text-1)]">Notification Advance Notice</p>
+                    <p className="text-xs text-[var(--text-3)] font-medium mt-0.5">Notify me {notificationAdvanceHours} hour{notificationAdvanceHours !== 1 ? 's' : ''} before deadlines</p>
+                  </div>
+                  <select
+                    value={notificationAdvanceHours}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      setNotificationAdvanceHours(val);
+                      updateProfile({ notification_advance_hours: val });
+                    }}
+                    className="px-3 py-1.5 text-sm font-semibold text-[var(--text-1)] bg-white border border-[var(--border)] rounded-[12px] focus:outline-none focus:border-[var(--primary)]"
+                    aria-label="Hours before deadline to notify"
+                  >
+                    {[0, 1, 2, 3, 6, 12, 24].map((h) => (
+                      <option key={h} value={h}>
+                        {h === 0 ? 'At deadline time' : `${h} hour${h !== 1 ? 's' : ''} before`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {/* Performance Mode Toggle */}
+                <div className="flex items-center gap-3 px-4 py-3.5">
+                  <div className="w-9 h-9 clay-icon flex items-center justify-center shrink-0 rounded-[18px]" style={{ background: 'var(--primary-dim)' }}>
+                    <Gauge className="w-[18px] h-[18px]" style={{ color: 'var(--primary)' }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-[var(--text-1)]">Performance Mode</p>
+                    <p className="text-xs text-[var(--text-3)] font-medium mt-0.5">
+                      {performanceMode === 'low' ? 'On · Battery saver (reduced motion & blur)' : 'Off · High quality graphics'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPerformanceMode(performanceMode === 'low' ? 'high' : 'low')}
+                    className="relative w-[48px] h-[24px] rounded-full transition-colors duration-200 shrink-0 border border-transparent"
+                    style={{ backgroundColor: performanceMode === 'low' ? '#FF5A36' : '#E9E9E6' }}
+                    aria-label={`Performance mode: ${performanceMode === 'low' ? 'turn off' : 'turn on'}`}
+                  >
+                    <span
+                      className="absolute top-[1px] w-[20px] h-[20px] rounded-full bg-white shadow-sm transition-all duration-200"
+                      style={{ left: performanceMode === 'low' ? '25px' : '2px' }}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
 

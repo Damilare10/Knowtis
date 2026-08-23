@@ -4,14 +4,21 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "strip:web-only": "node scripts/strip-web-only-assets.js",
+    "build:android": "set NEXT_PUBLIC_IS_CAPACITOR=true&& next build --webpack",
+    "sync:android": "npm run build:android && npm run strip:web-only && npx cap sync android"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
     "@capacitor/cli": "^8.4.1",
     "@capacitor/core": "^8.4.1",
+    "@capacitor/local-notifications": "^8.2.0",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/push-notifications": "^8.1.2",
+    "@capacitor/splash-screen": "^8.0.2",
     "@dicebear/collection": "^9.4.2",
     "@dicebear/core": "^9.4.2",
     "@phosphor-icons/react": "^2.1.10",

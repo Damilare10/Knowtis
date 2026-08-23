@@ -4,8 +4,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
+import apiClient from '@/lib/api';
 import type { ChatMessage } from '@/lib/api';
-import { Sparkles, Send, BookOpen, Clock, FileText, Calendar, ArrowRight, User, X } from 'lucide-react';
+import { Sparkles, Send, BookOpen, Clock, FileText, Calendar, ArrowRight, User, X, Plus, Loader2, Image as ImageIcon, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
 const SUGGESTED = [
@@ -97,6 +98,13 @@ export default function AIChatPopup() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
 
+  // Document Upload States
+  const [showUploadPopup, setShowUploadPopup] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<{ name: string; content: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [fileTypeToAccept, setFileTypeToAccept] = useState<'image/*' | 'application/pdf'>('image/*');
+
   // Handle portal mounting
   useEffect(() => {
     setMounted(true);
@@ -112,22 +120,70 @@ export default function AIChatPopup() {
   // Keep latest message in view
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
+      return () => clearTimeout(timer);
     }
   }, [isOpen, aiMessages, aiSending]);
 
   // Close popup automatically on page navigation
   useEffect(() => {
     setIsOpen(false);
+    setAttachedFile(null);
+    setShowUploadPopup(false);
   }, [pathname, setIsOpen]);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsScanning(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await apiClient.post('/ocr/extract', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      const extractedText = response.data?.extracted_text || '';
+      if (!extractedText.trim()) {
+        alert("We couldn't extract any readable text from this file. Please make sure the text is clear.");
+      } else {
+        setAttachedFile({
+          name: file.name,
+          content: extractedText,
+        });
+      }
+    } catch (err: any) {
+      console.error(err);
+      const errMsg = err.response?.data?.detail || "Failed to scan the file. Please try again.";
+      alert(errMsg);
+    } finally {
+      setIsScanning(false);
+      // Reset input value to allow selecting same file again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
 
   const send = (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || aiSending) return;
+    if (!trimmed && !attachedFile) return;
+    if (aiSending) return;
+
+    let messageToSend = trimmed;
+    if (attachedFile) {
+      messageToSend = `[Scanned Document: "${attachedFile.name}"]\n\n${attachedFile.content}\n\nUser question: ${trimmed || "Please summarize the key dates and events in this document."}`;
+      setAttachedFile(null); // Clear the attachment
+    }
+
     setInput('');
-    sendAIMessage(trimmed);
+    sendAIMessage(messageToSend);
   };
 
   if (!mounted) return null;
@@ -272,26 +328,98 @@ export default function AIChatPopup() {
             )}
 
             {/* Input Bar */}
-            <div className="p-4 bg-white/40 border-t border-[#E9E9E6]/50 shrink-0">
+            <div className="p-4 bg-white/40 border-t border-[#E9E9E6]/50 shrink-0 relative">
+              
+              {/* Attached Scanned File Indicator */}
+              {attachedFile && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FFF0EB] border border-[#FFD8CD] rounded-xl text-[11px] font-black text-[#FF5A36] mb-2 w-fit animate-fade-in">
+                  <FileText className="w-3.5 h-3.5" />
+                  <span className="truncate max-w-[200px] text-left">{attachedFile.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAttachedFile(null)}
+                    className="ml-1 hover:text-red-600 active:scale-95 transition-all text-[#FF5A36]"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Upload Dropdown Menu */}
+              {showUploadPopup && (
+                <div className="absolute bottom-20 left-4 bg-white border border-[#E9E9E6] rounded-2xl p-2 shadow-xl z-20 flex flex-col gap-1 w-48">
+                  <p className="text-[9px] font-black uppercase tracking-wider text-[#A3A29C] px-2 py-1 text-left">Attach academic file</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFileTypeToAccept('image/*');
+                      setShowUploadPopup(false);
+                      setTimeout(() => { fileInputRef.current?.click(); }, 100);
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-[#FBFBFA] rounded-xl text-xs font-black text-[#171717] active:scale-95 transition-all"
+                  >
+                    <ImageIcon className="w-4 h-4 text-[#FF5A36]" />
+                    Scan Image/Photo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFileTypeToAccept('application/pdf');
+                      setShowUploadPopup(false);
+                      setTimeout(() => { fileInputRef.current?.click(); }, 100);
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-[#FBFBFA] rounded-xl text-xs font-black text-[#171717] active:scale-95 transition-all"
+                  >
+                    <FileText className="w-4 h-4 text-[#4285F4]" />
+                    Upload PDF Document
+                  </button>
+                </div>
+              )}
+
               <form
                 onSubmit={(e) => { e.preventDefault(); send(input); }}
                 className="bg-white border border-[#E9E9E6] rounded-2xl flex items-center gap-2 p-1.5 shadow-sm"
               >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: 'none' }}
+                  accept={fileTypeToAccept}
+                  onChange={handleFileChange}
+                />
+
+                <button
+                  type="button"
+                  onClick={() => setShowUploadPopup(!showUploadPopup)}
+                  disabled={aiSending || isScanning}
+                  className="w-9 h-9 rounded-xl hover:bg-[#FBFBFA] text-[#74736D] flex items-center justify-center shrink-0 active:scale-95 transition-all disabled:opacity-40"
+                  aria-label="Attach file"
+                >
+                  {isScanning ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#FF5A36]" />
+                  ) : (
+                    <Plus className="w-4 h-4" />
+                  )}
+                </button>
+
                 <label htmlFor="ai-popup-question" className="sr-only">Ask Knowtis AI</label>
                 <input
                   id="ai-popup-question"
                   type="text"
                   autoComplete="off"
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    setShowUploadPopup(false);
+                  }}
                   placeholder="Ask about deadlines, exams, updates..."
-                  disabled={aiSending}
-                  className="flex-1 bg-transparent outline-none text-xs font-bold text-[#171717] placeholder:text-[#A3A29C] px-3 py-2 disabled:opacity-50"
+                  disabled={aiSending || isScanning}
+                  className="flex-1 bg-transparent outline-none text-xs font-bold text-[#171717] placeholder:text-[#A3A29C] px-1 py-2 disabled:opacity-50"
                 />
                 <button
                   type="submit"
                   aria-label="Send question"
-                  disabled={!input.trim() || aiSending}
+                  disabled={(!input.trim() && !attachedFile) || aiSending || isScanning}
                   className="w-9 h-9 rounded-xl bg-[#171717] hover:bg-[#2c2c2c] text-white flex items-center justify-center shrink-0 disabled:opacity-40 transition-all active:scale-95 shadow-sm"
                 >
                   <Send className="w-3.5 h-3.5" />
@@ -335,25 +463,66 @@ function MessageBubble({ msg }: MessageBubbleProps) {
         )}
       </div>
 
-      <div
-        className={`max-w-[80%] p-3.5 rounded-2xl space-y-1.5 text-xs font-semibold ${
-          isUser
-            ? 'bg-[#171717] text-white rounded-tr-sm shadow-sm'
-            : isBrief
-              ? 'bg-[#FFF0EB] border border-[#FFD8CD] rounded-tl-sm text-[#FF5A36]'
-              : 'bg-white border border-[#E9E9E6]/50 rounded-tl-sm text-[#171717] shadow-sm'
-        }`}
-      >
-        {isBrief && (
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <Calendar className="w-3 h-3 text-[#FF5A36]" />
-            <span className="text-[9px] font-black uppercase tracking-wider text-[#FF5A36]">Daily brief</span>
+      <div className="max-w-[80%] flex flex-col gap-2">
+        <div
+          className={`p-3.5 rounded-2xl space-y-1.5 text-xs font-semibold ${
+            isUser
+              ? 'bg-[#171717] text-white rounded-tr-sm shadow-sm'
+              : isBrief
+                ? 'bg-[#FFF0EB] border border-[#FFD8CD] rounded-tl-sm text-[#FF5A36]'
+                : 'bg-white border border-[#E9E9E6]/50 rounded-tl-sm text-[#171717] shadow-sm'
+          }`}
+        >
+          {isBrief && (
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Calendar className="w-3 h-3 text-[#FF5A36]" />
+              <span className="text-[9px] font-black uppercase tracking-wider text-[#FF5A36]">Daily brief</span>
+            </div>
+          )}
+          {isUser ? (
+            msg.content.startsWith('[Scanned Document:') ? (
+              <div className="space-y-2 text-left">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-white/10 rounded-xl text-[10px] text-white/90 border border-white/10 w-fit">
+                  <FileText className="w-3.5 h-3.5 text-white/80" />
+                  <span className="truncate max-w-[160px] font-black">
+                    {msg.content.split('\n\n')[0].replace('[Scanned Document: "', '').replace('"]', '').trim()}
+                  </span>
+                </div>
+                <p className="leading-relaxed text-xs">
+                  {msg.content.split('\n\nUser question: ')[1] || "Summarized the uploaded document."}
+                </p>
+              </div>
+            ) : (
+              <p className="leading-relaxed text-xs">{msg.content}</p>
+            )
+          ) : (
+            renderAI(msg.content)
+          )}
+        </div>
+
+        {msg.actions && msg.actions.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            {msg.actions.map((action, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15 + i * 0.08 }}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-[11px] font-bold ${
+                  action.success
+                    ? 'bg-[#EAF8F0] border-[#B8F0D4] text-[#32B87B]'
+                    : 'bg-red-50 border-red-100 text-red-600'
+                }`}
+              >
+                {action.success ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                )}
+                <span className="leading-snug">{action.message}</span>
+              </motion.div>
+            ))}
           </div>
-        )}
-        {isUser ? (
-          <p className="leading-relaxed">{msg.content}</p>
-        ) : (
-          renderAI(msg.content)
         )}
       </div>
     </motion.div>

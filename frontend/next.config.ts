@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   trailingSlash: true,
   images: { unoptimized: true },
+  turbopack: {},
   experimental: {
     optimizePackageImports: [
       "lucide-react",
@@ -14,3 +15,4 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+

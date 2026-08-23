@@ -4,11 +4,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   BellRinging, CalendarBlank, Clock, House, SignOut, Stack,
-  UserCircle, Sparkle, WhatsappLogo,
+  UserCircle, Sparkle, WhatsappLogo, ShieldCheck, Gear as Settings,
 } from '@phosphor-icons/react';
 import { useAppStore } from '@/lib/store';
 import { motion } from 'framer-motion';
 import AppLogo from '@/components/ui/app-logo';
+import { openAdminDashboard } from '@/lib/api';
 
 const PRIMARY_NAV = [
   { label: 'Home',      href: '/dashboard',     Icon: House         },
@@ -74,6 +75,7 @@ export default function Sidebar({ onClose }: SidebarProps) {
   const { user, logout } = useAppStore();
   const name = user?.full_name ?? 'Student';
   const tier = user?.tier ?? 'free';
+  const isAdmin = user?.role === 'admin' || user?.role === 'ADMIN';
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
 
@@ -98,6 +100,28 @@ export default function Sidebar({ onClose }: SidebarProps) {
 
         <p className="label text-[var(--text-3)] px-2 mb-2">More</p>
         {SECONDARY_NAV.map(item => <NavItem key={item.href} {...item} active={isActive(item.href)} onClose={onClose} />)}
+
+        {isAdmin && (
+          <>
+            <div className="my-3 border-t border-[var(--border-soft)]" />
+            <p className="label text-[var(--primary)] px-2 mb-2 font-bold flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5" weight="fill" />
+              Owner Controls
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                openAdminDashboard();
+                onClose?.();
+              }}
+              className={`relative flex items-center gap-3 px-3.5 py-2.5 rounded-[14px] text-sm font-semibold transition-colors duration-150 w-full text-left text-[var(--text-2)] hover:bg-[#FBFBFA] hover:text-[var(--text-1)]`}
+            >
+              <ShieldCheck className="h-[19px] w-[19px] text-[var(--text-3)]" weight="duotone" />
+              <span>Admin Board</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-auto opacity-40"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </button>
+          </>
+        )}
       </nav>
 
       {/* User + logout */}

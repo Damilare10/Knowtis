@@ -21,6 +21,25 @@ export default function BottomNav() {
   const aiButtonRef = useRef<HTMLAnchorElement | null>(null);
   const setAiPopupOpen = useAppStore((s) => s.setAiPopupOpen);
 
+  React.useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+
+    const updateKeyboardOffset = () => {
+      const keyboardHeight = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
+    };
+
+    updateKeyboardOffset();
+    viewport.addEventListener('resize', updateKeyboardOffset);
+    viewport.addEventListener('scroll', updateKeyboardOffset);
+    return () => {
+      viewport.removeEventListener('resize', updateKeyboardOffset);
+      viewport.removeEventListener('scroll', updateKeyboardOffset);
+      document.documentElement.style.removeProperty('--keyboard-height');
+    };
+  }, []);
+
   const handleAiClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
     setAiPopupOpen(true);

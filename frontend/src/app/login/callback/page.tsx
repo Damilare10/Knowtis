@@ -4,6 +4,7 @@ import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import { persistWidgetAuth } from '@/lib/widget-auth';
+import { setPersistentItem } from '@/lib/persistent-storage';
 import { Loader2 } from 'lucide-react';
 
 function CallbackContent() {
@@ -13,13 +14,22 @@ function CallbackContent() {
 
   useEffect(() => {
     const token = searchParams.get('token');
+    const refreshToken = searchParams.get('refresh_token');
+
     if (token) {
-      localStorage.setItem('knowtis_token', token);
-      persistWidgetAuth(token);
-      checkAuth().then(() => {
-        const onboarded = localStorage.getItem('knowtis_onboarded') === 'true';
-        router.push(onboarded ? '/dashboard' : '/onboarding/research');
-      });
+      const handleAuth = async () => {
+        await setPersistentItem('knowtis_token', token);
+        if (refreshToken) {
+          await setPersistentItem('knowtis_refresh_token', refreshToken);
+        }
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('knowtis_onboarded', 'true');
+        }
+        persistWidgetAuth(token);
+        await checkAuth();
+        router.push('/dashboard');
+      };
+      handleAuth();
     } else {
       router.push('/login');
     }
