@@ -146,6 +146,53 @@ class EventExtractionService:
 
         return results
 
+    # Titles that carry no information. A card showing one of these is worse than
+    # no card: it occupies the feed, cannot be searched, and teaches the user that
+    # extraction is unreliable. The batch prompt used to ship without any event
+    # schema at all, so the model omitted `title` and the pydantic default turned
+    # every single card into "Academic Update".
+    _PLACEHOLDER_TITLES = {
+        "", "academic update", "update", "updates", "announcement", "announcements",
+        "notice", "info", "information", "n/a", "na", "none", "null", "untitled",
+    }
+
+    # Openers to skip when salvaging a title from the message body.
+    _TITLE_SKIP_PREFIX = re.compile(
+        r"^(?:@\w+\s*|good\s+(?:morning|afternoon|evening|day)\b|hello\b|hi\b|hey\b|"
+        r"greetings\b|attention\b|please\s+note\b|kindly\s+note\b|note\b|"
+        r"important\b|urgent\b|guys\b|everyone\b|all\b)[\s,:.!-]*",
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _resolve_title(agnes: Dict[str, Any]) -> str:
+        """Return a usable title, salvaging from the description if needed.
+
+        Returns "" when nothing usable exists, so the caller can drop the event
+        instead of persisting a placeholder card.
+        """
+        title = (agnes.get("title") or "").strip()
+        if title.lower().rstrip(".!") not in EventExtractionService._PLACEHOLDER_TITLES:
+            return title[:80]
+
+        # Salvage: take the first sentence of the description that still has
+        # substance once the greeting/@mention opener is stripped.
+        body = (agnes.get("description") or agnes.get("message_text") or "").strip()
+        if not body:
+            return ""
+
+        for chunk in re.split(r"(?<=[.!?])\s+|\n+", body):
+            candidate = EventExtractionService._TITLE_SKIP_PREFIX.sub("", chunk.strip()).strip()
+            if len(candidate.split()) >= 3:
+                logger.warning(
+                    "Model omitted a usable title; salvaged %r from the description. "
+                    "Check the extraction prompt.",
+                    candidate[:80],
+                )
+                return candidate[:80]
+
+        return ""
+
     @staticmethod
     def _wrap_batch_result(
         agnes: Dict[str, Any],
@@ -218,7 +265,14 @@ class EventExtractionService:
         else:
             actionability = "needs_attention"
 
-        title = agnes.get("title", "Academic Update") or "Academic Update"
+        title = EventExtractionService._resolve_title(agnes)
+        if not title:
+            logger.error(
+                "Dropping extracted event with no usable title (course=%r, category=%r). "
+                "The model omitted `title` and nothing could be salvaged from the description.",
+                course_code, event_type,
+            )
+            return None
         description = agnes.get("description") or agnes.get("message_text") or ""
 
         # action_type drives the UPDATE / CANCEL branches of

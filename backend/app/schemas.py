@@ -625,7 +625,7 @@ class ExtractedEventItem(BaseModel):
     action_type: str = Field(default="CREATE", description="CREATE (new event), UPDATE (reschedule/venue/deadline change), or CANCEL (cancelled/postponed)")
     category: Optional[str] = Field(default="INFO", description="DEADLINE, EVENT, ALERT, or INFO")
     course_code: Optional[str] = Field(default=None, description="Uppercase normalized course code like CSC301")
-    title: str = Field(default="Academic Update", description="Concise info card title (max 80 chars)")
+    title: str = Field(default="", description="Concise info card title (max 80 chars). Empty means the model omitted it; the extraction layer then salvages or rejects the event rather than persisting a placeholder.")
     description: Optional[str] = Field(default=None, description="Extracted event details")
     venue: Optional[str] = Field(default=None, description="Location or venue")
     date_expression: Optional[str] = Field(default=None, description="The temporal phrase exactly as written, e.g. 'next friday 2pm'. Resolved downstream by TemporalParser.")

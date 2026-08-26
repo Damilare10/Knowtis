@@ -14,18 +14,22 @@ from app.schemas import SingleMessageAIResponse, BatchMessageAIResponse, Extract
 
 logger = logging.getLogger(__name__)
 
-EXTRACTION_SYSTEM_PROMPT = (
-    "You are an academic event extraction engine for Nigerian university WhatsApp groups. "
-    "Given a message from a student group and a reference timestamp anchor, classify it and extract all structured academic events.\n\n"
-    "RETURN ONLY a JSON object conforming strictly to this shape:\n"
-    "{\n"
-    '  "classification": "SIGNAL" or "NOISE",\n'
-    '  "events": [\n'
+# The event object schema, defined ONCE and interpolated into both prompts.
+#
+# The batch prompt previously said only `{ ...event object adhering to standard
+# schema... }` with no schema attached. Since the batch path is the only one used
+# in production, the model was guessing field names, and every field it omitted
+# was silently filled by the pydantic defaults in ExtractedEventItem — which is
+# why every card rendered as "Academic Update" with no course code, venue or
+# date. Keeping one copy means the two prompts cannot drift apart again.
+_EVENT_OBJECT_SCHEMA = (
     "    {\n"
     '      "action_type": "CREATE" | "UPDATE" | "CANCEL",\n'
     '      "category": "DEADLINE" | "EVENT" | "ALERT" | "INFO",\n'
     '      "course_code": "CSC301" or null,\n'
-    '      "title": "Concise info card title (max 80 chars)",\n'
+    '      "title": "Concise info card title, max 80 chars, describing WHAT happened. '
+    'Never a greeting. Never the literal text \'Academic Update\'. '
+    'Good: \'ELE310 CA test moved to Friday 2pm\'. Bad: \'Good morning everyone\'.",\n'
     '      "description": "Extracted event details with context",\n'
     '      "venue": "Location" or null,\n'
     '      "date_expression": "the temporal phrase EXACTLY as written in the message, e.g. \'next friday 2pm\', \'tomorrow\', \'30th\'" or null,\n'
@@ -37,20 +41,48 @@ EXTRACTION_SYSTEM_PROMPT = (
     '      "needs_review": boolean,\n'
     '      "event_completeness": "complete" | "missing_course" | "missing_date" | "missing_time_resolution"\n'
     "    }\n"
+)
+
+# Rules shared by both prompts, so a fix to one is a fix to both.
+_SHARED_EVENT_RULES = (
+    "- Every event object MUST include ALL of the keys shown above. Never omit a key; "
+    "use null when a value is genuinely absent. Do NOT invent extra keys.\n"
+    "- `title` is REQUIRED and must summarise the actual announcement. Most WhatsApp "
+    "announcements open with a greeting or an @mention; skip that and title the substance. "
+    "If you cannot identify a concrete announcement, the message is NOISE — do not emit an "
+    "event with a placeholder title.\n"
+    "- action_type: 'CREATE' for a newly announced event or deadline, 'UPDATE' when an "
+    "existing one changes (rescheduled, postponed, moved, venue change, deadline extended), "
+    "'CANCEL' when one is cancelled, called off, or will no longer hold. This decides whether "
+    "an existing card is patched or cancelled instead of a duplicate being created, so never omit it.\n"
+    "- DO NOT compute, resolve, or convert dates. Copy the temporal phrase verbatim into "
+    "`date_expression` ('tomorrow', 'next friday 2pm', 'by the 30th') and set `date_is_explicit` "
+    "true only when the message names a date or day. Resolution happens downstream against each "
+    "message's own timestamp. Never output an ISO date, and never guess a time the message does not state.\n"
+    "- Normalize course codes: 3-4 letters + 3-4 digits, no spaces, uppercase (csc 301 -> CSC301).\n"
+    "- Do NOT output urgency_score; urgency is computed downstream from the deadline.\n"
+    "- NOISE means: greetings, jokes, memes, casual chat, student questions or inquiries "
+    "('who has the textbook', 'has anyone seen the lecturer', 'can someone send slides', "
+    "'are we having class'), textbook/material borrowing requests, 'noted', 'ok', 'lol'. "
+    "A valid SIGNAL must be an actionable announcement, schedule update, test/exam, or "
+    "assignment deadline — NOT a student question.\n"
+)
+
+EXTRACTION_SYSTEM_PROMPT = (
+    "You are an academic event extraction engine for Nigerian university WhatsApp groups. "
+    "Given a message from a student group and a reference timestamp anchor, classify it and extract all structured academic events.\n\n"
+    "RETURN ONLY a JSON object conforming strictly to this shape:\n"
+    "{\n"
+    '  "classification": "SIGNAL" or "NOISE",\n'
+    '  "events": [\n'
+    + _EVENT_OBJECT_SCHEMA +
     "  ]\n"
     "}\n\n"
     "STRICT RULES:\n"
-    "1. Greetings, jokes, memes, casual chat, student questions/inquiries (e.g. 'who has the textbook', 'has anyone seen the lecturer', 'can someone send slides', 'are we having class'), textbook/material borrowing requests, noted, ok, lol -> classification=NOISE, events=[]. A valid SIGNAL MUST be an actionable announcement, schedule update, test/exam, or assignment deadline, NOT a student question.\n"
-    "2. action_type is REQUIRED on every event: 'CREATE' for new events/deadlines, 'UPDATE' for changes in venue/time/deadline extension, or 'CANCEL' for cancellations. It decides whether an existing card is patched or cancelled instead of a duplicate being created, so never omit it.\n"
-    "2. Messages about assignments, exams, lecture changes, timetable updates -> classification=SIGNAL.\n"
-    "3. Single messages may contain MULTIPLE distinct events (e.g. an assignment deadline AND a class cancellation). "
-    "Extract EVERY valid event as an entry inside the `events` array.\n"
-    "4. DO NOT compute, resolve, or convert dates. Copy the temporal phrase verbatim into date_expression "
-    "('tomorrow', 'next friday 2pm', 'by the 30th'). Date resolution happens downstream against the message's own "
-    "timestamp. Never output an ISO date and never guess a time that the message does not state.\n"
-    "5. Normalize course codes: uppercase, no spaces (e.g. csc 301 -> CSC301).\n"
-    "6. Do NOT output urgency_score; urgency is computed downstream from the deadline.\n"
-    "7. Return ONLY valid JSON."
+    + _SHARED_EVENT_RULES +
+    "- A single message may contain MULTIPLE distinct events (e.g. an assignment deadline AND "
+    "a class cancellation). Extract EVERY valid event as a separate entry in the `events` array.\n"
+    "- Return ONLY valid JSON.\n"
 )
 
 
@@ -69,29 +101,20 @@ class AgnesService:
         '      "index": 1,\n'
         '      "classification": "SIGNAL" or "NOISE",\n'
         '      "events": [\n'
-        "        { ...event object adhering to standard schema... }\n"
+        + _EVENT_OBJECT_SCHEMA +
         "      ]\n"
         "    }\n"
         "  ]\n"
         "}\n\n"
         "STRICT RULES:\n"
-        "1. Return ONE item per message. The `index` field is REQUIRED on every item and MUST equal the "
-        "message number exactly as given. Never renumber, never omit it, never merge two messages into one item "
-        "-- the index is how each extracted event is attributed back to its source message.\n"
-        "2. If NOISE (casual chat, student questions like 'who has textbook', 'has anyone seen lecturer', material requests, greetings), classification=NOISE and events=[].\n"
-        "3. If SIGNAL (official class announcement, assignment deadline, exam/quiz, venue change), extract ALL distinct academic events into the `events` array.\n"
-        "4. Every event object MUST include \"action_type\": \"CREATE\" for a newly announced "
-        "event or deadline, \"UPDATE\" when an existing event changes (rescheduled, postponed, "
-        "moved, venue change, deadline extended), or \"CANCEL\" when an existing event is "
-        "cancelled, called off, or will no longer hold. This field decides whether an existing "
-        "card is patched or cancelled instead of a duplicate being created, so never omit it.\n"
-        "5. DO NOT compute or resolve dates. Put the temporal phrase EXACTLY as written into "
-        "\"date_expression\" ('tomorrow', 'next friday 2pm', 'by the 30th') and set "
-        "\"date_is_explicit\" true only when the message names a date or day. Resolution happens "
-        "downstream against each message's own timestamp. Never output an ISO date.\n"
-        "6. Normalize course codes: 3-4 letters + 3-4 digits, no spaces, uppercase (e.g. CSC301).\n"
-        "7. Do NOT output urgency_score; urgency is computed downstream from the deadline.\n"
-        "8. Return ONLY valid JSON."
+        "- Return ONE item per message. The `index` field is REQUIRED on every item and MUST equal "
+        "the message number exactly as given. Never renumber, never omit it, never merge two "
+        "messages into one item -- the index is how each extracted event is attributed back to its "
+        "source message.\n"
+        "- If NOISE, set classification=NOISE and events=[].\n"
+        "- If SIGNAL, extract ALL distinct academic events into the `events` array.\n"
+        + _SHARED_EVENT_RULES +
+        "- Return ONLY valid JSON.\n"
     )
 
     @staticmethod
@@ -257,7 +280,7 @@ class AgnesService:
             if cat not in ("DEADLINE", "EVENT", "ALERT", "INFO"):
                 cat = "INFO"
             ev_dict["category"] = cat
-            ev_dict["title"] = _trunc_title(ev_dict.get("title") or "Academic Update", 80)
+            ev_dict["title"] = _trunc_title(ev_dict.get("title") or "", 80)
             if not ev_dict.get("description"):
                 ev_dict["description"] = fallback_text or ev_dict["title"]
             processed_events.append(ev_dict)
@@ -269,7 +292,7 @@ class AgnesService:
             "action_type": primary_event.get("action_type", "CREATE"),
             "category": primary_event.get("category", "INFO"),
             "course_code": primary_event.get("course_code"),
-            "title": primary_event.get("title", "Academic Update"),
+            "title": primary_event.get("title") or "",
             "description": primary_event.get("description", fallback_text or "Academic Update"),
             "venue": primary_event.get("venue"),
             "date_time": primary_event.get("date_time"),
@@ -322,7 +345,7 @@ class AgnesService:
                 if cat not in ("DEADLINE", "EVENT", "ALERT", "INFO"):
                     cat = "INFO"
                 ev_dict["category"] = cat
-                ev_dict["title"] = _trunc_title(ev_dict.get("title") or "Academic Update", 80)
+                ev_dict["title"] = _trunc_title(ev_dict.get("title") or "", 80)
                 processed_events.append(ev_dict)
 
             primary_event = processed_events[0] if processed_events else {}
@@ -333,7 +356,7 @@ class AgnesService:
                 "action_type": primary_event.get("action_type", "CREATE"),
                 "category": primary_event.get("category", "INFO"),
                 "course_code": primary_event.get("course_code"),
-                "title": primary_event.get("title", "Academic Update"),
+                "title": primary_event.get("title") or "",
                 "description": primary_event.get("description", "Academic Update"),
                 "venue": primary_event.get("venue"),
                 "date_time": primary_event.get("date_time"),
@@ -352,8 +375,14 @@ class AgnesService:
 
 
 def _trunc_title(title: str, max_len: int = 80) -> str:
+    """Truncate a title, preserving emptiness.
+
+    This used to substitute "Academic Update" for a missing title, which meant a
+    model that omitted the field produced a card indistinguishable from a real
+    one. Absence is now preserved so _wrap_batch_result can salvage or reject it.
+    """
     if not title:
-        return "Academic Update"
+        return ""
     if len(title) <= max_len:
         return title
     return title[:(max_len - 3)] + "..."
