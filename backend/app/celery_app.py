@@ -66,4 +66,11 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.recover_groups",
         "schedule": crontab(minute="*/5"),
     },
+    # Message batch processing: evaluate dispatch triggers every 30 seconds.
+    # The beat MUST be tighter than the age trigger it enforces — at a 2-minute
+    # beat an "older than 90s" rule could never fire on time.
+    "dispatch-message-batches": {
+        "task": "app.tasks.dispatch_message_batches",
+        "schedule": 30.0,
+    },
 }

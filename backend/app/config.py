@@ -25,8 +25,20 @@ def _get_float(key: str, default: float) -> float:
         return default
 
 
+def _get_int(key: str, default: int) -> int:
+    try:
+        return int(os.getenv(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
 def _is_insecure_secret(value: str, default: str) -> bool:
     return not value or value == default or "CHANGE_ME" in value
+
+
+def _get_csv(key: str, default: str = "") -> list[str]:
+    raw = os.getenv(key, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 class Settings:
@@ -47,10 +59,7 @@ class Settings:
     google_client_secret: Optional[str] = os.getenv("GOOGLE_CLIENT_SECRET")
     backend_url: str = os.getenv("BACKEND_URL", "http://localhost:8000")
     frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
-
-    # ── Microsoft OAuth (Outlook calendar) ───────────────────────────────────
-    outlook_client_id: Optional[str] = os.getenv("OUTLOOK_CLIENT_ID")
-    outlook_client_secret: Optional[str] = os.getenv("OUTLOOK_CLIENT_SECRET")
+    cors_origins: list[str] = _get_csv("CORS_ORIGINS")
 
     # ── RevenueCat ────────────────────────────────────────────────────────────
     revenuecat_webhook_secret: Optional[str] = os.getenv("REVENUECAT_WEBHOOK_SECRET")
@@ -95,6 +104,28 @@ class Settings:
     ai_free_daily_limit: int = int(os.getenv("AI_FREE_DAILY_LIMIT", "20"))
     ai_premium_daily_limit: int = int(os.getenv("AI_PREMIUM_DAILY_LIMIT", "200"))
 
+    # ── Agnes AI (primary classification + extraction) ──────────────────────────
+    agnes_enabled: bool
+    agnes_api_key: str
+    agnes_base_url: str
+    agnes_model: str = os.getenv("AGNES_MODEL", "agnes-2.0-flash")
+    agnes_request_timeout: float = float(os.getenv("AGNES_REQUEST_TIMEOUT", "15"))
+    batch_max_attempts: int = _get_int("BATCH_MAX_ATTEMPTS", 5)
+    batch_bisect_after: int = _get_int("BATCH_BISECT_AFTER", 3)
+    # §6.1 dispatch triggers. A group is dispatched when it has accumulated
+    # BATCH_SIZE_TRIGGER messages, when its oldest unprocessed message is older
+    # than BATCH_AGE_TRIGGER_SECONDS, or when a tripwire keyword appears.
+    batch_size_trigger: int = _get_int("BATCH_SIZE_TRIGGER", 15)
+    batch_age_trigger_seconds: int = _get_int("BATCH_AGE_TRIGGER_SECONDS", 90)
+    # Words that mean "a student is about to miss something" — dispatch at once
+    # rather than waiting for the size or age trigger.
+    batch_tripwire_keywords: str = os.getenv(
+        "BATCH_TRIPWIRE_KEYWORDS",
+        "cancelled,canceled,postponed,rescheduled,venue,urgent,deadline,exam,test,submission",
+    )
+    # Seconds a per-group dispatch lock is held before it is considered stale.
+    batch_dispatch_lock_seconds: int = _get_int("BATCH_DISPATCH_LOCK_SECONDS", 600)
+
     # ── Premium Real-Time Alerts (push/DM channel) ────────────────────────────
     push_webhook_url: str = os.getenv("PUSH_WEBHOOK_URL", "")
     push_webhook_enabled: bool = _get_bool("PUSH_WEBHOOK_ENABLED", False)
@@ -134,10 +165,6 @@ class Settings:
         "SCHEDULER_ENABLED",
         os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).lower() in {"production", "prod"},
     )
-    semantic_prewarm_enabled: bool = _get_bool(
-        "SEMANTIC_PREWARM_ENABLED",
-        os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).lower() in {"production", "prod"},
-    )
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     log_format: str = os.getenv("LOG_FORMAT", "json")  # "json" | "console"
     # Comma-separated server URLs surfaced in the OpenAPI spec (empty -> BACKEND_URL)
@@ -166,8 +193,7 @@ class Settings:
         self.google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
         self.backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
         self.frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
-        self.outlook_client_id = os.getenv("OUTLOOK_CLIENT_ID")
-        self.outlook_client_secret = os.getenv("OUTLOOK_CLIENT_SECRET")
+        self.cors_origins = _get_csv("CORS_ORIGINS")
         self.revenuecat_webhook_secret = os.getenv("REVENUECAT_WEBHOOK_SECRET")
         self.similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", "0.75"))
         self.setfit_classifier_enabled = _get_bool("SETFIT_CLASSIFIER_ENABLED", True)
@@ -198,6 +224,20 @@ class Settings:
         self.ai_max_tokens = int(os.getenv("AI_MAX_TOKENS", "1024"))
         self.ai_free_daily_limit = int(os.getenv("AI_FREE_DAILY_LIMIT", "20"))
         self.ai_premium_daily_limit = int(os.getenv("AI_PREMIUM_DAILY_LIMIT", "200"))
+        self.agnes_api_key = os.getenv("AGNES_API_KEY", "")
+        self.agnes_base_url = os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1")
+        self.agnes_model = os.getenv("AGNES_MODEL", "agnes-2.0-flash")
+        self.agnes_request_timeout = float(os.getenv("AGNES_REQUEST_TIMEOUT", "15"))
+        self.agnes_enabled = bool(self.agnes_api_key)
+        self.batch_max_attempts = _get_int("BATCH_MAX_ATTEMPTS", 5)
+        self.batch_bisect_after = _get_int("BATCH_BISECT_AFTER", 3)
+        self.batch_size_trigger = _get_int("BATCH_SIZE_TRIGGER", 15)
+        self.batch_age_trigger_seconds = _get_int("BATCH_AGE_TRIGGER_SECONDS", 90)
+        self.batch_tripwire_keywords = os.getenv(
+            "BATCH_TRIPWIRE_KEYWORDS",
+            "cancelled,canceled,postponed,rescheduled,venue,urgent,deadline,exam,test,submission",
+        )
+        self.batch_dispatch_lock_seconds = _get_int("BATCH_DISPATCH_LOCK_SECONDS", 600)
         self.push_webhook_url = os.getenv("PUSH_WEBHOOK_URL", "")
         self.push_webhook_enabled = _get_bool("PUSH_WEBHOOK_ENABLED", False)
         self.push_webhook_timeout_seconds = _get_float("PUSH_WEBHOOK_TIMEOUT_SECONDS", 5.0)
@@ -219,7 +259,6 @@ class Settings:
         self.app_env = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).lower()
         self.debug = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
         self.scheduler_enabled = _get_bool("SCHEDULER_ENABLED", self.app_env in {"production", "prod"})
-        self.semantic_prewarm_enabled = _get_bool("SEMANTIC_PREWARM_ENABLED", self.app_env in {"production", "prod"})
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
         self.log_format = os.getenv("LOG_FORMAT", "json")
         self.openapi_servers = os.getenv("OPENAPI_SERVERS", "")
@@ -230,6 +269,10 @@ class Settings:
                 raise RuntimeError("JWT_SECRET_KEY must be set to a strong non-default value in production.")
             if _is_insecure_secret(self.refresh_token_secret, "SUPER_SECRET_REFRESH_KEY_CHANGE_ME"):
                 raise RuntimeError("REFRESH_TOKEN_SECRET must be set to a strong non-default value in production.")
+            if not self.cors_origins:
+                raise RuntimeError("CORS_ORIGINS must be set in production, for example: https://app.example.com")
+            if "*" in self.cors_origins:
+                raise RuntimeError("CORS_ORIGINS cannot include '*' in production.")
 
 
 settings = Settings()

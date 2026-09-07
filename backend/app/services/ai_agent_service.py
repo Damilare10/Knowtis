@@ -28,6 +28,7 @@ from app.models import AcademicEvent, EventType, NotificationInbox, OCRExtractio
 from app.services.llm_service import LLMService
 from app.services.reminder_service import ReminderService
 from app.services.search_service import SearchService
+from app.services.ai_tools import TOOL_SYSTEM_PROMPT, AIToolEngine, TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -461,16 +462,16 @@ class AIAgentService:
                 preview = (ocr.extracted_text or "").strip().replace("\n", " ")
                 blocks.append(f"- {preview[:300]}")
 
-        return "\n".join(blocks)
+        return "\n".join(blocks) + "\n\n" + TOOL_SYSTEM_PROMPT.strip()
 
     @staticmethod
     async def answer_premium(ctx: RetrievalContext, tier: str = "premium") -> Dict:
         """Conversational answer grounded in the retrieved context."""
-        messages = [
+        messages: List[Dict[str, str]] = [
             {"role": "system", "content": AIAgentService.build_system_prompt(ctx)},
             {"role": "user", "content": ctx.query},
         ]
-        answer = await LLMService.chat(messages, tier=tier)
+        answer = await LLMService.chat(messages, tier=tier, tools=TOOLS, tool_choice="auto")
         return {
             "answer": answer,
             "citations": AIAgentService._citations(ctx.events),

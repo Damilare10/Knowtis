@@ -15,7 +15,7 @@ from app.models import User, OCRExtraction, AcademicEvent
 from app.schemas import OCRExtractResponse
 from app.dependencies import get_current_user
 from app.services.ocr_service import OCRService
-from app.services.classifier_service import MessageClassifier
+from app.services.urgency_service import compute_urgency
 from app.utils import generate_embedding
 from app.config import settings
 from app.rate_limit import limiter
@@ -29,6 +29,7 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 
 ALLOWED_CONTENT_TYPES = {
     "image/jpeg", "image/png", "image/webp", "image/bmp", "image/tiff",
+    "application/pdf",
 }
 
 # Free-tier monthly OCR limit
@@ -164,7 +165,7 @@ async def extract_from_image(
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Unsupported file type: {file.content_type}. Accepted: JPEG, PNG, WebP, BMP, TIFF.",
+            detail=f"Unsupported file type: {file.content_type}. Accepted: JPEG, PNG, WebP, BMP, TIFF, PDF.",
         )
 
     image_bytes = await file.read()
@@ -181,18 +182,55 @@ async def extract_from_image(
             detail="Uploaded file is empty.",
         )
 
-    # ── OCR Processing ────────────────────────────────────────────────────────
-    try:
-        result = OCRService.process_image(image_bytes, user_instructions=instructions)
-    except Exception as e:
-        logger.error(f"OCR processing error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="OCR processing failed. Please try a clearer image.",
-        )
+    # ── OCR / PDF Processing ──────────────────────────────────────────────────
+    raw_text = ""
+    structured_events = []
 
-    raw_text = result.get("raw_text", "")
-    structured_events = result.get("structured_events", [])
+    if file.content_type == "application/pdf":
+        try:
+            import pypdf
+            import io
+            reader = pypdf.PdfReader(io.BytesIO(image_bytes))
+            raw_text_list = []
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    raw_text_list.append(page_text)
+            raw_text = "\n".join(raw_text_list).strip()
+
+            if not raw_text:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Could not extract text from PDF. If it is a scanned document, please convert it to images first.",
+                )
+
+            # Parse into structured academic events
+            events = OCRService._parse_events(raw_text)
+
+            # Apply natural-language filters if present
+            if instructions and events:
+                events = OCRService._apply_filters(events, instructions)
+
+            structured_events = events
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"PDF extraction error: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to parse PDF document.",
+            )
+    else:
+        try:
+            result = OCRService.process_image(image_bytes, user_instructions=instructions)
+            raw_text = result.get("raw_text", "")
+            structured_events = result.get("structured_events", [])
+        except Exception as e:
+            logger.error(f"OCR processing error: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="OCR processing failed. Please try a clearer image.",
+            )
 
     # ── Save OCR extraction record ────────────────────────────────────────────
     from uuid import UUID as _UUID
@@ -203,13 +241,17 @@ async def extract_from_image(
         except ValueError:
             parsed_group_id = None
 
+    extraction_confidence = (
+        0.95 if file.content_type == "application/pdf" else (0.85 if raw_text else 0.0)
+    )
+
     ocr_record = OCRExtraction(
         user_id=user.id,
         group_id=parsed_group_id,
         message_id=None,
         extracted_text=raw_text,
-        extraction_confidence=0.85 if raw_text else 0.0,
-        extraction_strategy="paddleocr" if raw_text else "pytesseract",
+        extraction_confidence=extraction_confidence,
+        extraction_strategy="pdf_parse" if file.content_type == "application/pdf" else ("paddleocr" if raw_text else "pytesseract"),
         user_instructions=instructions,
         filtered_events=structured_events,
     )
@@ -222,9 +264,6 @@ async def extract_from_image(
         try:
             text_for_analysis = ev_data.get("title", "")
 
-            # Score the event
-            scores = MessageClassifier.calculate_scores(text_for_analysis)
-
             # Generate embedding
             embedding_vec = generate_embedding(text_for_analysis)
 
@@ -236,6 +275,10 @@ async def extract_from_image(
                 ev_data.get("time_str"),
             )
 
+            # Confidence tracks how well the document was read; relevance and
+            # actionability use the same neutral defaults as the WhatsApp
+            # extractor. Urgency is DERIVED from the parsed date, never guessed
+            # from keywords in the title.
             event = AcademicEvent(
                 user_id=user.id,
                 group_id=None,
@@ -245,13 +288,13 @@ async def extract_from_image(
                 description=f"Extracted from image via OCR. Raw: {ev_data.get('raw_line', '')}",
                 venue=ev_data.get("venue"),
                 date_time=parsed_dt,
-                urgency_score=scores["urgency_score"],
-                confidence_score=scores["confidence_score"],
-                relevance_score=scores["relevance_score"],
-                actionability_score=scores["actionability_score"],
+                confidence_score=extraction_confidence,
+                relevance_score=0.7,
+                actionability_score=0.6,
                 embedding=json.dumps(embedding_vec),
                 source_message_id=str(ocr_record.id),
             )
+            event.urgency_score = compute_urgency(event)
             db.add(event)
             db.flush()
             created_events.append(event)

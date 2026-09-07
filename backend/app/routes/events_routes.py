@@ -7,15 +7,20 @@ import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
+from datetime import datetime
 from uuid import UUID
 from app.database import get_db
-from app.models import AcademicEvent, User, EventType
-from app.schemas import AcademicEventResponse, AcademicEventCreate, AcademicEventListResponse, SemanticSearchResponse
+from app.models import AcademicEvent, User, EventType, EventStatus, WhatsAppGroup
+from app.schemas import (
+    AcademicEventResponse, AcademicEventCreate, AcademicEventUpdate,
+    AcademicEventListResponse, SemanticSearchResponse
+)
 from app.dependencies import get_current_user
-from app.services.classifier_service import MessageClassifier
 from app.services.deduplication_service import DeduplicationService
 from app.services.search_service import SearchService
 from app.services.reminder_service import ReminderService
+from app.services.urgency_service import compute_urgency
 from app.utils import generate_embedding
 
 logger = logging.getLogger(__name__)
@@ -37,21 +42,26 @@ async def list_events(
     db: Session = Depends(get_db),
 ):
     """
-    List academic events for the authenticated user.
-    Free-tier users see a maximum of 3 events, ordered by urgency.
-    Premium users get full paginated access.
+    List academic events for the authenticated user with source group provenance.
+    Filters out superseded events and signals tier-based truncation.
     """
     try:
-        query = db.query(AcademicEvent).filter(
-            AcademicEvent.user_id == user.id,
-            AcademicEvent.is_archived == False,
-            AcademicEvent.is_duplicate == False,
+        query = (
+            db.query(AcademicEvent, WhatsAppGroup.group_name)
+            .outerjoin(WhatsAppGroup, AcademicEvent.group_id == WhatsAppGroup.id)
+            .filter(
+                AcademicEvent.user_id == user.id,
+                AcademicEvent.is_archived == False,
+                AcademicEvent.is_duplicate == False,
+                AcademicEvent.status != EventStatus.SUPERSEDED,
+            )
         )
 
         if event_type:
             query = query.filter(AcademicEvent.event_type == event_type)
         if course_code:
-            query = query.filter(AcademicEvent.course_code == course_code)
+            query = query.filter(func.lower(
+                AcademicEvent.course_code) == course_code.lower())
 
         total = query.count()
 
@@ -61,19 +71,29 @@ async def list_events(
             AcademicEvent.date_time.asc(),
         )
 
-        # Enforce tier limits
+        truncated = False
+        plan_limit = None
         if not user.is_premium:
-            events = ordered.limit(FREE_TIER_LIMIT).all()
-            effective_total = min(total, FREE_TIER_LIMIT)
+            rows = ordered.limit(FREE_TIER_LIMIT).all()
+            if total > FREE_TIER_LIMIT:
+                truncated = True
+                plan_limit = FREE_TIER_LIMIT
         else:
-            events = ordered.offset(skip).limit(limit).all()
-            effective_total = total
+            rows = ordered.offset(skip).limit(limit).all()
+
+        items = []
+        for event, grp_name in rows:
+            if grp_name:
+                setattr(event, "group_name", grp_name)
+            items.append(event)
 
         return {
-            "items": events,
-            "total": effective_total,
+            "items": items,
+            "total": total,
             "skip": skip if user.is_premium else 0,
             "limit": limit,
+            "truncated": truncated,
+            "plan_limit": plan_limit,
         }
 
     except HTTPException:
@@ -114,12 +134,15 @@ async def search_events(
             limit=effective_limit,
             threshold=threshold
         )
-        
-        return [
-            {"event": event, "similarity": similarity}
-            for event, similarity in matches
-        ]
-        
+
+        results = []
+        for event, similarity in matches:
+            if event.group:
+                setattr(event, "group_name", event.group.group_name)
+            results.append({"event": event, "similarity": similarity})
+
+        return results
+
     except Exception as e:
         logger.error(f"Error in semantic search endpoint: {e}")
         raise HTTPException(
@@ -134,20 +157,37 @@ async def get_event(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get a specific academic event by ID"""
+    """Get a specific academic event by ID including provenance"""
     try:
-        event = db.query(AcademicEvent).filter(
-            AcademicEvent.id == event_id,
-            AcademicEvent.user_id == user.id,
-        ).first()
+        row = (
+            db.query(AcademicEvent, WhatsAppGroup.group_name)
+            .outerjoin(WhatsAppGroup, AcademicEvent.group_id == WhatsAppGroup.id)
+            .filter(
+                AcademicEvent.id == event_id,
+                AcademicEvent.user_id == user.id,
+            )
+            .first()
+        )
 
-        if not event:
+        if not row:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Event not found.",
             )
 
+        event, grp_name = row
+        if grp_name:
+            setattr(event, "group_name", grp_name)
         return event
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting event: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get event.",
+        )
 
     except HTTPException:
         raise
@@ -173,9 +213,6 @@ async def create_event(
         # Build a text representation for NLP and embedding
         text_for_analysis = f"{event_data.title} {event_data.description or ''} {event_data.course_code or ''}"
 
-        # ── Score the event via classifier ────────────────────────────────────
-        scores = MessageClassifier.calculate_scores(text_for_analysis)
-
         # ── Generate semantic embedding ───────────────────────────────────────
         embedding_vec = generate_embedding(text_for_analysis)
         embedding_str = json.dumps(embedding_vec)
@@ -192,9 +229,14 @@ async def create_event(
         canonical_id = canonical.id if canonical else None
 
         if is_duplicate:
-            logger.info(f"Duplicate detected — linking to canonical event {canonical_id}")
+            logger.info(
+                f"Duplicate detected — linking to canonical event {canonical_id}")
 
         # ── Persist event ─────────────────────────────────────────────────────
+        # The user supplied these fields directly, so there is no model
+        # prediction to score: confidence/relevance/actionability are 1.0 by
+        # definition. Urgency is still DERIVED from the deadline rather than
+        # guessed from keywords in the title.
         event = AcademicEvent(
             user_id=user.id,
             group_id=None,
@@ -204,14 +246,14 @@ async def create_event(
             description=event_data.description,
             venue=event_data.venue,
             date_time=event_data.date_time,
-            urgency_score=scores["urgency_score"],
-            confidence_score=scores["confidence_score"],
-            relevance_score=scores["relevance_score"],
-            actionability_score=scores["actionability_score"],
+            confidence_score=1.0,
+            relevance_score=1.0,
+            actionability_score=1.0,
             embedding=embedding_str,
             is_duplicate=is_duplicate,
             canonical_event_id=canonical_id,
         )
+        event.urgency_score = compute_urgency(event)
 
         db.add(event)
         db.commit()
@@ -269,3 +311,74 @@ async def delete_event(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to archive event.",
         )
+
+
+@router.put("/{event_id}", response_model=AcademicEventResponse)
+async def update_event(
+    event_id: UUID,
+    payload: AcademicEventUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Update an academic event's core details, mark review complete, record revision history,
+    and recompute urgency.
+    """
+    try:
+        event = db.query(AcademicEvent).filter(
+            AcademicEvent.id == event_id,
+            AcademicEvent.user_id == user.id,
+        ).first()
+
+        if not event:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Event not found.",
+            )
+
+        changes = {}
+        if payload.title is not None and payload.title != event.title:
+            changes["title"] = {"old": event.title, "new": payload.title}
+            event.title = payload.title
+        if payload.course_code is not None and payload.course_code != event.course_code:
+            changes["course_code"] = {"old": event.course_code, "new": payload.course_code}
+            event.course_code = payload.course_code
+        if payload.date_time is not None and payload.date_time != event.date_time:
+            changes["date_time"] = {"old": str(event.date_time), "new": str(payload.date_time)}
+            event.date_time = payload.date_time
+        if payload.venue is not None and payload.venue != event.venue:
+            changes["venue"] = {"old": event.venue, "new": payload.venue}
+            event.venue = payload.venue
+        if payload.event_type is not None and payload.event_type != event.event_type:
+            changes["event_type"] = {"old": str(event.event_type), "new": str(payload.event_type)}
+            event.event_type = payload.event_type
+
+        event.needs_review = False
+        rev = list(event.revisions or [])
+        rev.append({
+            "action": "USER_UPDATE",
+            "timestamp": datetime.utcnow().isoformat(),
+            "changes": changes,
+        })
+        event.revisions = rev
+        event.urgency_score = compute_urgency(event)
+        event.updated_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(event)
+
+        if event.group:
+            setattr(event, "group_name", event.group.group_name)
+
+        return event
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating event {event_id}: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update event.",
+        )
+

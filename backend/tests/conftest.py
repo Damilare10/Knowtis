@@ -24,6 +24,7 @@ def db_fixture():
     # Create all tables in models.py (Base imports them since they are registered)
     # Ensure they are imported here so SQLAlchemy registers them on Base.metadata
     from app import models  # noqa
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     
     db = TestingSessionLocal()

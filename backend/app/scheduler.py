@@ -4,10 +4,63 @@ Uses APScheduler to run periodic jobs inside the FastAPI process.
 Handles: reminder execution, Night Brief generation, and staggered WhatsApp group joining.
 """
 import logging
+import os
 import random
+import tempfile
+import time
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+
+# ── Single-instance guard ───────────────────────────────────────────────────
+# With uvicorn --reload, the parent reloader process AND the child worker
+# process both run the FastAPI startup handler. Without a lock, two APScheduler
+# instances would start — doubling every scheduled job (reminders, night
+# briefs, join attempts). This PID-file lock ensures only the first process
+# to acquire it runs the scheduler; the other skips startup silently.
+_SCHEDULER_PID_FILE = os.path.join(
+    tempfile.gettempdir(), 'knowtis_scheduler.pid'
+)
+
+
+def _acquire_scheduler_lock() -> bool:
+    """Atomically acquire the scheduler lock. Returns True if acquired."""
+    my_pid = os.getpid()
+    try:
+        fd = os.open(
+            _SCHEDULER_PID_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY
+        )
+        os.write(fd, str(my_pid).encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        try:
+            with open(_SCHEDULER_PID_FILE) as f:
+                existing_pid = int(f.read().strip())
+            # Same process already holds the lock (reloader + worker in same run)
+            if existing_pid == my_pid:
+                return True
+            # Check if the file is recent (within 5 minutes) — a stale file
+            # means the old process crashed. This avoids os.kill() which is
+            # unreliable on Windows (signal 0 not supported).
+            mtime = os.path.getmtime(_SCHEDULER_PID_FILE)
+            if time.time() - mtime < 300:
+                logger.debug(
+                    "Scheduler lock held by PID %d (%.0fs ago) — skipping",
+                    existing_pid, time.time() - mtime,
+                )
+                return False
+            # Stale — take over
+            os.remove(_SCHEDULER_PID_FILE)
+            return _acquire_scheduler_lock()
+        except (ValueError, OSError, ProcessLookupError):
+            try:
+                os.remove(_SCHEDULER_PID_FILE)
+            except OSError:
+                pass
+            return _acquire_scheduler_lock()
+    except OSError:
+        return False
 
 # Max join attempts before a pending group is marked inactive (blocked).
 MAX_JOIN_ATTEMPTS = 5
@@ -46,6 +99,73 @@ def _execute_pending_reminders():
         db.close()
 
 
+def _refresh_urgency_scores():
+    """Job: re-derive ``urgency_score`` for every user holding a live event.
+
+    Urgency is a function of time-to-deadline, so a score written at extraction
+    time goes stale as the deadline approaches. Without this pass the dashboard's
+    primary sort key would only ever be correct at the instant the event was
+    created — an assignment due in four hours would keep the score it had when it
+    was still four days out.
+
+    Scoped to users who actually own a live event so the work does not grow with
+    the size of the user table.
+    """
+    from app.database import SessionLocal
+    from app.models import AcademicEvent
+    from app.services.urgency_service import recompute_for_user
+
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        cutoff = now - timedelta(hours=24)
+
+        user_ids = (
+            db.query(AcademicEvent.user_id)
+            .filter(AcademicEvent.is_archived == False)  # noqa: E712
+            .filter(
+                (AcademicEvent.date_time.is_(None))
+                | (AcademicEvent.date_time >= cutoff)
+            )
+            .distinct()
+            .all()
+        )
+        if not user_ids:
+            return
+
+        updated = 0
+        for (user_id,) in user_ids:
+            try:
+                updated += recompute_for_user(user_id, db, now)
+            except Exception as exc:
+                # One user's bad row must not stop the rest of the sweep.
+                logger.error("Urgency refresh failed for user %s: %s", user_id, exc)
+                db.rollback()
+
+        if updated:
+            logger.info(
+                "Urgency refresh: rescored %d event(s) across %d user(s)",
+                updated, len(user_ids),
+            )
+
+    except Exception as e:
+        logger.error(f"Urgency refresh job error: {e}")
+    finally:
+        db.close()
+
+
+def run_reminder_cycle():
+    """The 5-minute cycle: refresh derived urgency, then fire due reminders.
+
+    Both drivers call this — the in-process APScheduler job and the Celery beat
+    task ``app.tasks.send_pending_reminders_task`` — so the two cannot drift
+    apart. Urgency runs in its own guarded pass; a scoring failure must never
+    stop a reminder from being delivered.
+    """
+    _refresh_urgency_scores()
+    _execute_pending_reminders()
+
+
 def _generate_night_briefs():
     """
     Job: generate a Night Brief notification for every active user at 20:00 daily.
@@ -64,6 +184,18 @@ def _generate_night_briefs():
 
         for user in users:
             try:
+                # Idempotency check: Ensure only ONE Night Brief notification is created per user per day
+                today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                existing_brief = db.query(NotificationInbox).filter(
+                    NotificationInbox.user_id == user.id,
+                    NotificationInbox.notification_type == "NIGHT_BRIEF",
+                    NotificationInbox.created_at >= today_start,
+                ).first()
+
+                if existing_brief:
+                    logger.info(f"Night Brief already generated for user {user.id} today. Skipping duplicate.")
+                    continue
+
                 # Count upcoming deadlines
                 deadlines = db.query(AcademicEvent).filter(
                     AcademicEvent.user_id == user.id,
@@ -297,11 +429,14 @@ def start_scheduler():
     """
     Start the background scheduler.
     Jobs:
-    - Every 5 minutes: execute due reminders
+    - Every 5 minutes: refresh derived urgency, then execute due reminders
     - Daily at 20:00 UTC: generate Night Briefs for all users
     - Every 30 seconds: process staggered WhatsApp group joins
     """
     global _scheduler
+
+    if not _acquire_scheduler_lock():
+        return
 
     if not HAS_APSCHEDULER:
         logger.warning("APScheduler not available — skipping scheduler startup")
@@ -321,14 +456,14 @@ def start_scheduler():
 
     _scheduler = BackgroundScheduler(timezone="UTC")
 
-    # Fire due reminders every 5 minutes
+    # Refresh derived urgency, then fire due reminders, every 5 minutes
     _scheduler.add_job(
-        _execute_pending_reminders,
+        run_reminder_cycle,
         trigger="interval",
         minutes=5,
         id="reminder_executor",
         replace_existing=True,
-        name="Execute Pending Reminders",
+        name="Refresh Urgency + Execute Pending Reminders",
     )
 
     # Night Brief every evening at 20:00 UTC
@@ -353,7 +488,7 @@ def start_scheduler():
     )
 
     _scheduler.start()
-    logger.info("Background scheduler started (reminder executor + night brief + join queue jobs)")
+    logger.info("Background scheduler started (urgency refresh + reminder executor + night brief + join queue)")
 
 
 def stop_scheduler():
@@ -362,3 +497,8 @@ def stop_scheduler():
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
         logger.info("Background scheduler stopped")
+    try:
+        if os.path.exists(_SCHEDULER_PID_FILE):
+            os.remove(_SCHEDULER_PID_FILE)
+    except OSError:
+        pass

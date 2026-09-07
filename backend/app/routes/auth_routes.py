@@ -159,17 +159,19 @@ async def check_username(
         return UsernameCheckResponse(
             username=normalised,
             available=False,
+            reason="invalid",
             suggestion=None,
         )
 
     taken = db.query(User).filter(User.username == normalised).first() is not None
     if not taken:
-        return UsernameCheckResponse(username=normalised, available=True)
+        return UsernameCheckResponse(username=normalised, available=True, reason=None)
 
     suggestion = _next_available_variant(db, normalised)
     return UsernameCheckResponse(
         username=normalised,
         available=False,
+        reason="taken",
         suggestion=suggestion,
     )
 
@@ -349,10 +351,9 @@ async def google_oauth_callback(request: Request, code: str = Query(...), db: Se
     refresh_token = AuthService.create_refresh_token(user.id, db)
 
     from app.config import settings
-    redirect_url = f"{settings.frontend_url}/login/callback?token={access_token}"
+    redirect_url = f"{settings.frontend_url}/login/callback?token={access_token}&refresh_token={refresh_token}"
     
     response = RedirectResponse(url=redirect_url)
-    # Optionally we could set the refresh token as an httpOnly cookie here
     return response
 
 
@@ -413,6 +414,9 @@ async def update_profile(
 
         if user_data.fcm_token is not None:
             current_user.fcm_token = user_data.fcm_token
+
+        if user_data.notification_advance_hours is not None:
+            current_user.notification_advance_hours = user_data.notification_advance_hours
 
         db.commit()
         db.refresh(current_user)

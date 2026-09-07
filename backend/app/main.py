@@ -21,7 +21,6 @@ from app.routes import reminders_routes
 from app.routes import whatsapp_routes
 from app.routes import auth_state_routes
 from app.routes import notifications_routes
-from app.routes import calendar_routes
 from app.routes import billing_routes
 from app.routes import ocr_routes
 from app.routes import ai_routes
@@ -29,12 +28,15 @@ from app.routes import realtime_routes
 from app.routes import widget_routes
 from app.routes import training_routes
 from app.routes import onboarding_routes
+from app.routes import admin_routes
+from app.database import SessionLocal
 from app.rate_limit import (
     HAS_SLOWAPI,
     RateLimitExceeded,
     SlowAPIMiddleware,
     _rate_limit_exceeded_handler,
     limiter,
+    RateLimitLoggingMiddleware,
 )
 
 
@@ -69,16 +71,37 @@ async def lifespan(app: FastAPI):
     run_startup_migrations(engine)
     logger.info("Database tables verified/created")
 
-    if settings.semantic_prewarm_enabled:
-        # Pre-warm the semantic event-type classifier so the first WhatsApp
-        # message does not pay the MiniLM embedding cost on the critical path.
+    # Auto-seed default admin user if no admin exists
+    try:
+        from app.database import SessionLocal
+        from app.models import User, UserRole
+        from app.services.auth_service import AuthService
+        db = SessionLocal()
         try:
-            from app.services.semantic_classifier import prewarm
-            prewarm()
-        except Exception as exc:
-            logger.warning("Semantic classifier prewarm failed: %s", exc)
-    else:
-        logger.info("Semantic classifier prewarm disabled")
+            admin_user = db.query(User).filter(User.role == UserRole.ADMIN).first()
+            if not admin_user:
+                logger.info("No admin user found. Auto-seeding default admin 'kaiju'...")
+                username = "kaiju"
+                password = "damilare10"
+                email = "kaiju@knowtis.app"
+                hashed_pw = AuthService.get_password_hash(password)
+                new_admin = User(
+                    username=username,
+                    email=email,
+                    hashed_password=hashed_pw,
+                    role=UserRole.ADMIN,
+                    is_active=True,
+                    is_premium=True,
+                    tier="premium",
+                    full_name="Kaiju Admin",
+                )
+                db.add(new_admin)
+                db.commit()
+                logger.info("Default admin 'kaiju' auto-seeded successfully.")
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("Auto-seeding default admin skipped/failed: %s", exc)
 
     # Start background scheduler
     from app.scheduler import start_scheduler
@@ -109,11 +132,11 @@ openapi_tags = [
     {"name": "WhatsApp", "description": "WhatsApp group ingestion webhooks and connector integration."},
     {"name": "Notifications", "description": "Night briefs and the in-app notification inbox."},
     {"name": "OCR", "description": "On-demand image OCR and structured schedule extraction."},
-    {"name": "Calendar", "description": "Google Calendar / Outlook one-click synchronization."},
     {"name": "Billing", "description": "RevenueCat webhooks and premium subscription sync."},
     {"name": "AI", "description": "AI Catch-Up Agent — deterministic (free) and Groq-powered conversational (premium) query engine."},
     {"name": "Realtime", "description": "WebSocket and SSE live feed for dashboard events, reminders and notifications."},
     {"name": "Widgets", "description": "Supplies data formatted for the homescreen widgets."},
+    {"name": "Admin", "description": "Platform management, KPIs, user management, WhatsApp coverage, system health, and broadcasting."},
 ]
 
 
@@ -201,10 +224,16 @@ if HAS_SLOWAPI:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(SlowAPIMiddleware)
 
+# Rate limit logging middleware (logs all rate limit events to database)
+app.add_middleware(RateLimitLoggingMiddleware, db_session_factory=SessionLocal)
+
+cors_origins = settings.cors_origins or [settings.frontend_url]
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Tighten in production
+    allow_origins=cors_origins,
+    allow_origin_regex=r"https?://.*|capacitor://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -245,7 +274,6 @@ app.include_router(reminders_routes.router)
 app.include_router(whatsapp_routes.router)
 app.include_router(auth_state_routes.router)
 app.include_router(notifications_routes.router)
-app.include_router(calendar_routes.router)
 app.include_router(billing_routes.router)
 app.include_router(ocr_routes.router)
 app.include_router(ai_routes.router)
@@ -253,6 +281,7 @@ app.include_router(realtime_routes.router)
 app.include_router(widget_routes.router)
 app.include_router(training_routes.router)
 app.include_router(onboarding_routes.router)
+app.include_router(admin_routes.router)
 
 
 # ── Health & status ───────────────────────────────────────────────────────────

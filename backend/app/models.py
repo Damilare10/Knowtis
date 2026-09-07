@@ -5,9 +5,9 @@ Comprehensive database schema with validation
 
 from sqlalchemy import (
     Column, String, Text, Boolean, DateTime, Date, Float, Integer, ForeignKey,
-    JSON, Enum as SQLEnum, Index, func
+    JSON, Enum as SQLEnum, Index, UniqueConstraint, func
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import UUID, JSONB as PG_JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -47,10 +47,34 @@ class ReminderState(str, Enum):
 
 
 class ProcessingStatus(str, Enum):
-    """Message processing status"""
+    """Message processing status.
+
+    ``PENDING`` / ``PROCESSED`` / ``FAILED`` are the lifecycle states. The
+    remaining members are *terminal* outcomes that record why a message never
+    produced an academic event, so a skipped message is distinguishable from a
+    successfully-processed one during audit.
+    """
     PENDING = "PENDING"
     PROCESSED = "PROCESSED"
     FAILED = "FAILED"
+    QUARANTINED = "QUARANTINED"
+    FILTERED_OUT = "FILTERED_OUT"
+    SKIPPED_EMPTY = "SKIPPED_EMPTY"
+    SKIPPED_FRAGMENT = "SKIPPED_FRAGMENT"
+    SKIPPED_REPEAT = "SKIPPED_REPEAT"
+
+
+#: Statuses that represent a finished decision about a message. Once a message
+#: reaches one of these it must not be overwritten with ``PROCESSED``.
+TERMINAL_PROCESSING_STATUSES = frozenset({
+    ProcessingStatus.PROCESSED,
+    ProcessingStatus.FAILED,
+    ProcessingStatus.QUARANTINED,
+    ProcessingStatus.FILTERED_OUT,
+    ProcessingStatus.SKIPPED_EMPTY,
+    ProcessingStatus.SKIPPED_FRAGMENT,
+    ProcessingStatus.SKIPPED_REPEAT,
+})
 
 
 class User(Base):
@@ -79,6 +103,7 @@ class User(Base):
     whatsapp_number = Column(String(50), unique=True, nullable=True, index=True)
     fcm_token = Column(String(255), nullable=True)
     ai_tokens_received = Column(Integer, default=0, nullable=False)
+    notification_advance_hours = Column(Integer, default=3, nullable=False)
 
     # Relationships
     whatsapp_groups = relationship("WhatsAppGroup", back_populates="user", cascade="all, delete-orphan")
@@ -119,6 +144,12 @@ class WhatsAppGroup(Base):
     join_attempts = Column(Integer, default=0, nullable=False)
     last_join_attempt = Column(DateTime)
     next_join_attempt = Column(DateTime)
+
+    # Selective Keyword & Subject Filtering (for outstanding / specific course monitoring)
+    monitored_keywords = Column(JSON, default=list)
+    monitored_courses = Column(JSON, default=list)
+    filter_mode = Column(String(20), default="ALL")  # "ALL" | "FILTERED"
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -131,6 +162,20 @@ class WhatsAppGroup(Base):
     __table_args__ = (
         Index("idx_user_group_jid", "user_id", "group_jid", unique=True),
     )
+
+
+class EventStatus(str, Enum):
+    """Academic event lifecycle status"""
+    ACTIVE = "ACTIVE"
+    CANCELLED = "CANCELLED"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class EventDatePrecision(str, Enum):
+    """Precision of the resolved date/time on the academic event"""
+    EXACT = "exact"
+    DAY_ONLY = "day_only"
+    UNKNOWN = "unknown"
 
 
 class AcademicEvent(Base):
@@ -153,10 +198,32 @@ class AcademicEvent(Base):
     actionability_score = Column(Float, default=0.6)
     is_duplicate = Column(Boolean, default=False)
     canonical_event_id = Column(UUID(as_uuid=True), ForeignKey("academic_events.id", ondelete="SET NULL"))
-    embedding = Column(String)  # Vector embedding stored as string (to be indexed with pgvector)
-    source_message_id = Column(String(255))
+    # True while the extraction is incomplete or low-confidence. Gates automatic
+    # reminders/notifications and marks the row as a candidate for the sliding-window
+    # context-recovery pass in ``process_incoming_message_task``.
+    needs_review = Column(Boolean, default=True, nullable=False, index=True)
+    embedding = Column(String)  # Vector embedding stored as JSON string (legacy / SQLite fallback)
+    source_message_id = Column(String(255))  # WhatsApp message ID string (kept for backward compatibility)
     source_group_jid = Column(String(255))
     is_archived = Column(Boolean, default=False)
+    
+    # Step 5 Schema additions
+    status = Column(
+        SQLEnum(EventStatus, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        default=EventStatus.ACTIVE,
+        nullable=False,
+        index=True
+    )
+    superseded_by_id = Column(UUID(as_uuid=True), ForeignKey("academic_events.id", ondelete="SET NULL"), nullable=True)
+    date_precision = Column(
+        SQLEnum(EventDatePrecision, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        default=EventDatePrecision.UNKNOWN,
+        nullable=False
+    )
+    source_raw_message_id = Column(UUID(as_uuid=True), ForeignKey("raw_messages.id", ondelete="SET NULL"), nullable=True, index=True)
+    event_index = Column(Integer, default=0, nullable=False)
+    revisions = Column(JSON, default=list)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -165,6 +232,13 @@ class AcademicEvent(Base):
     group = relationship("WhatsAppGroup", back_populates="academic_events")
     reminders = relationship("Reminder", back_populates="event", cascade="all, delete-orphan")
     notifications = relationship("NotificationInbox", back_populates="event")
+    superseded_by = relationship("AcademicEvent", remote_side=[id], foreign_keys=[superseded_by_id])
+    source_raw_message = relationship("RawMessage", foreign_keys=[source_raw_message_id])
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "source_raw_message_id", "event_index", name="uq_event_source"),
+        Index("ix_events_business_key", "user_id", "course_code", "event_type", "date_time"),
+    )
 
 
 class RawMessage(Base):
@@ -183,6 +257,11 @@ class RawMessage(Base):
     classification = Column(String(50), index=True)
     confidence_score = Column(Float)
     processing_status = Column(SQLEnum(ProcessingStatus), default=ProcessingStatus.PENDING)
+    quoted_message_id = Column(String(255), nullable=True)
+    quoted_message_text = Column(Text, nullable=True)
+    ai_processed = Column(Boolean, default=False, index=True)
+    text_hash = Column(String(64), index=True)
+    ai_attempts = Column(Integer, default=0, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -349,6 +428,7 @@ class ChatMessage(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     role = Column(String(20), nullable=False)  # 'user' | 'assistant' | 'brief'
     content = Column(Text, nullable=False)
+    meta = Column(JSON, nullable=True)  # action confirmations, tool results
     day = Column(Date, default=datetime.utcnow().date, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
@@ -496,8 +576,55 @@ class WhatsAppAuthState(Base):
     __tablename__ = "whatsapp_auth_state"
 
     id = Column(Integer, primary_key=True, default=1, server_default="1")
-    state = Column(JSONB, nullable=True)
+    state = Column(PG_JSONB().with_variant(JSON, "sqlite"), nullable=True)
     last_updated = Column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
+
+class NotificationTemplate(Base):
+    """Reusable notification/broadcast templates with variable substitution."""
+    __tablename__ = "notification_templates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), unique=True, nullable=False, index=True)
+    description = Column(Text)
+    title_template = Column(String(500), nullable=False)
+    body_template = Column(Text, nullable=False)
+    variables = Column(JSON, default=list)  # List of variable names: ["user_name", "course_code", "deadline_date"]
+    category = Column(String(50), default="general")  # general, deadline, alert, maintenance, feature
+    is_active = Column(Boolean, default=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    creator = relationship("User")
+
+
+class RateLimitLog(Base):
+    """Rate limit events for monitoring abuse and quota usage."""
+    __tablename__ = "rate_limit_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    ip_address = Column(String(45), index=True)  # IPv4 or IPv6
+    endpoint = Column(String(255), index=True)
+    method = Column(String(10))
+    limit_key = Column(String(255))  # e.g., "ai_query:user:123", "ocr:ip:1.2.3.4"
+    limit_rule = Column(String(100))  # e.g., "20/day", "100/minute"
+    current_count = Column(Integer)
+    limit_max = Column(Integer)
+    blocked = Column(Boolean, default=False, index=True)
+    user_tier = Column(String(20))  # free, premium, admin
+    user_agent = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    # Relationships
+    user = relationship("User")
+
+    __table_args__ = (
+        Index("idx_ratelimit_user_time", "user_id", "created_at"),
+        Index("idx_ratelimit_ip_time", "ip_address", "created_at"),
+        Index("idx_ratelimit_endpoint_time", "endpoint", "created_at"),
+    )

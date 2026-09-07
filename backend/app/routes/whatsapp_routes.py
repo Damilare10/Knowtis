@@ -7,14 +7,14 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Optional, Literal, Union, Annotated
 import hmac
 
 from app.config import settings
 from app.database import get_db
 from app.models import User, WhatsAppGroup, CoverageState
-from app.schemas import WhatsAppGroupResponse, JoinGroupRequest
+from app.schemas import WhatsAppGroupResponse, JoinGroupRequest, UpdateGroupFilterRequest
 from app.dependencies import get_current_user
 from app.services.whatsapp_service import WhatsAppService
 
@@ -30,12 +30,23 @@ class MessageWebhookData(BaseModel):
     message_id: str = Field(..., min_length=1, max_length=255)
     sender_jid: Optional[str] = Field(default=None, max_length=255)
     sender_name: Optional[str] = Field(default=None, max_length=255)
-    message_text: str = Field(..., min_length=1, max_length=5000)
+    message_text: Optional[str] = Field(default=None, max_length=5000)
+    text: Optional[str] = Field(default=None, max_length=5000)
     group_jid: str = Field(..., pattern=r"^[^\s@]+@g\.us$", max_length=255)
     timestamp: Optional[Union[int, float, str]] = None
     mentioned_jids: list[str] = Field(default_factory=list, max_length=100)
     is_bot_mentioned: bool = False
     mention_all: bool = False
+    quoted_message_id: Optional[str] = Field(default=None, max_length=255)
+    quoted_message_text: Optional[str] = Field(default=None, max_length=5000)
+
+    @model_validator(mode="after")
+    def populate_message_text(self) -> "MessageWebhookData":
+        if not self.message_text and self.text:
+            self.message_text = self.text
+        if not self.message_text:
+            self.message_text = ""
+        return self
 
 
 class GroupJoinedWebhookData(BaseModel):
@@ -60,7 +71,7 @@ class ConnectionStatusWebhookData(BaseModel):
 
 
 class MessageWebhookPayload(BaseModel):
-    event: Literal["message"]
+    event: Literal["message", "group_message"]
     data: MessageWebhookData
 
 
@@ -167,15 +178,30 @@ async def join_group(
             detail="Could not extract an invite code from the provided link.",
         )
 
-    # Build the canonical pending JID so we look up by exact match only — a
-    # broad ``LIKE %invite_code%`` would falsely match unrelated real JIDs
-    # whose random alphanumeric happens to contain the invite code substring.
+    # Build the canonical pending JID
     pending_jid = f"pending-{invite_code}@g.us"
 
-    # Check if already linked by this user
+    # 1. Resolve invite code via connector check_invite if available
+    real_group_info = None
+    try:
+        chk = WhatsAppService.check_invite(invite_code)
+        if chk.get("success"):
+            real_group_info = chk
+    except Exception as exc:
+        logger.warning(f"Could not check invite code via connector: {exc}")
+
+    real_jid = real_group_info.get("group_jid") if real_group_info else None
+    is_bot_member = bool(real_group_info.get("is_member")) if real_group_info else False
+
+    # Target JIDs to check for existing link by this user
+    target_jids = [pending_jid]
+    if real_jid:
+        target_jids.append(real_jid)
+
+    # Check if already linked by THIS user
     existing = db.query(WhatsAppGroup).filter(
         WhatsAppGroup.user_id == user.id,
-        (WhatsAppGroup.group_jid == pending_jid) | (WhatsAppGroup.group_jid == invite_code),
+        WhatsAppGroup.group_jid.in_(target_jids),
     ).first()
 
     if existing:
@@ -187,53 +213,65 @@ async def join_group(
         else:
             # Reactivate it
             existing.is_active = True
-            existing.coverage_state = CoverageState.ACTIVE
+            if is_bot_member and real_jid:
+                existing.group_jid = real_jid
+                existing.group_name = real_group_info.get("group_name") or existing.group_name
+                existing.group_description = real_group_info.get("group_description") or existing.group_description
+                existing.coverage_state = CoverageState.ACTIVE
+            else:
+                existing.coverage_state = CoverageState.RECOVERING
             db.commit()
             return {
                 "message": "Group reactivated successfully.",
                 "group_id": str(existing.id),
-                "status": "ACTIVE",
+                "status": "ACTIVE" if existing.coverage_state == CoverageState.ACTIVE else "RECOVERING",
             }
 
-    # Optimization: Check if this group was already joined by ANY other user
-    # (meaning the bot is already in the group and has a real group_jid).
-    # Match by exact pending-JID counterpart: a successful join replaces the
-    # pending-JID with the real one, so we look for either the pending or
-    # canonical forms.
-    already_joined = db.query(WhatsAppGroup).filter(
-        WhatsAppGroup.group_jid.in_([pending_jid, invite_code]),
-        WhatsAppGroup.is_active == True,
-    ).first()
+    # 2. If bot is confirmed to be in the group already, link user immediately as ACTIVE
+    if is_bot_member and real_jid:
+        already_joined_real = db.query(WhatsAppGroup).filter(
+            WhatsAppGroup.group_jid == real_jid,
+            WhatsAppGroup.is_active == True,
+        ).first()
 
-    if already_joined:
-        logger.info(f"Bot is already in group {already_joined.group_jid}. Linking user {user.id} immediately.")
+        logger.info(f"Bot is already in group {real_jid}. Linking user {user.id} immediately.")
         group = WhatsAppGroup(
             user_id=user.id,
-            group_jid=already_joined.group_jid,
-            group_name=already_joined.group_name,
-            group_description=already_joined.group_description,
-            group_picture_url=already_joined.group_picture_url,
+            group_jid=real_jid,
+            group_name=real_group_info.get("group_name") or (already_joined_real.group_name if already_joined_real else f"Group ({invite_code[:8]}...)"),
+            group_description=real_group_info.get("group_description") or (already_joined_real.group_description if already_joined_real else None),
+            group_picture_url=already_joined_real.group_picture_url if already_joined_real else None,
             coverage_state=CoverageState.ACTIVE,
             is_active=True,
+            filter_mode="ALL",
+            monitored_keywords=[],
+            monitored_courses=[],
         )
         db.add(group)
         db.commit()
         db.refresh(group)
 
         return {
-            "message": "Bot is already in this group. Monitored active immediately.",
+            "message": "Bot is already in this group. Monitoring active immediately.",
             "group_id": str(group.id),
             "status": "ACTIVE",
         }
 
-    # Otherwise: create a pending group record.
-    # The background scheduler or webhook will handle the join and update status.
+    # 3. Otherwise: create or link to a pending group record (RECOVERING state)
+    existing_pending = db.query(WhatsAppGroup).filter(
+        WhatsAppGroup.group_jid == pending_jid,
+        WhatsAppGroup.is_active == True,
+    ).first()
+
     group = WhatsAppGroup(
         user_id=user.id,
-        group_jid=f"pending-{invite_code}@g.us",
-        group_name=f"Group ({invite_code[:8]}...)",
+        group_jid=pending_jid,
+        group_name=existing_pending.group_name if existing_pending else f"Group ({invite_code[:8]}...)",
         coverage_state=CoverageState.RECOVERING,
         is_active=True,
+        filter_mode="ALL",
+        monitored_keywords=[],
+        monitored_courses=[],
     )
     db.add(group)
     db.commit()
@@ -242,9 +280,9 @@ async def join_group(
     logger.info(f"Group join queued for user {user.id}: invite={invite_code}")
 
     return {
-        "message": "Group join request queued. Monitoring will begin once the bot joins.",
+        "message": "Invite received. Knowtis will connect to the chat shortly.",
         "group_id": str(group.id),
-        "status": "QUEUED",
+        "status": "RECOVERING",
     }
 
 
@@ -271,6 +309,38 @@ async def unlink_group(
     db.commit()
 
     return {"message": "Group unlinked. Monitoring stopped."}
+
+
+@router.patch("/{group_id}/filters", response_model=WhatsAppGroupResponse)
+async def update_group_filters(
+    group_id: UUID,
+    body: UpdateGroupFilterRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update selective course and keyword filters for a linked WhatsApp group"""
+    group = db.query(WhatsAppGroup).filter(
+        WhatsAppGroup.id == group_id,
+        WhatsAppGroup.user_id == user.id,
+    ).first()
+
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group not found.",
+        )
+
+    if body.monitored_keywords is not None:
+        group.monitored_keywords = [k.strip().lower() for k in body.monitored_keywords if k.strip()]
+    if body.monitored_courses is not None:
+        group.monitored_courses = [c.strip().upper().replace(" ", "") for c in body.monitored_courses if c.strip()]
+    if body.filter_mode is not None:
+        mode = body.filter_mode.upper()
+        group.filter_mode = mode if mode in ("ALL", "FILTERED") else "ALL"
+
+    db.commit()
+    db.refresh(group)
+    return group
 
 
 @router.get("/{group_id}/status")
@@ -419,7 +489,7 @@ async def whatsapp_webhook(
     data = payload.data.model_dump()
     logger.info(f"Received webhook event: {event}")
 
-    if event == "message":
+    if event in ("message", "group_message"):
         from app.tasks import process_incoming_message_task
         from app.models import RawMessage
 

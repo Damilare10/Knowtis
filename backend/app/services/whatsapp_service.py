@@ -112,6 +112,77 @@ class WhatsAppService:
             return {"status": "UNREACHABLE", "message": str(e)}
 
     @staticmethod
+    def generate_qr() -> Dict[str, Any]:
+        """
+        Requests/generates a fresh WhatsApp linking QR code from the connector.
+        Handles 409 Conflict: either already connected (need to disconnect first)
+        or stale auth requiring reset (need to call /reset first).
+        """
+        url = f"{settings.whatsapp_connector_url}/generate-qr"
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.post(url, headers=WhatsAppService._auth_headers())
+                if response.status_code == 200:
+                    return response.json()
+                if response.status_code == 409:
+                    detail = "Unknown error"
+                    try:
+                        detail = response.json().get("detail", response.text)
+                    except Exception:
+                        detail = response.text
+                    if "Already connected" in detail:
+                        return {
+                            "success": False,
+                            "message": "WhatsApp bot is already connected. Disconnect first to generate a new QR code.",
+                            "action": "disconnect",
+                            "status": "CONNECTED"
+                        }
+                    if "AWAITING_RESET" in detail or "stale auth" in detail.lower():
+                        return {
+                            "success": False,
+                            "message": "Auth state is stale. Reset the session first to get a fresh QR code.",
+                            "action": "reset",
+                            "status": "AWAITING_RESET"
+                        }
+                    return {"success": False, "message": detail}
+                return {"success": False, "message": f"Connector returned status {response.status_code}"}
+        except httpx.RequestError as e:
+            logger.error(f"Failed to trigger QR generation on connector: {e}")
+            return {"success": False, "message": str(e)}
+
+    @staticmethod
+    def reset_session() -> Dict[str, Any]:
+        """
+        Wipes persisted Baileys auth state and triggers fresh QR generation.
+        """
+        url = f"{settings.whatsapp_connector_url}/reset"
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.post(url, headers=WhatsAppService._auth_headers())
+                if response.status_code == 200:
+                    return response.json()
+                return {"success": False, "message": f"Reset failed with status {response.status_code}"}
+        except httpx.RequestError as e:
+            logger.error(f"Failed to reset connector session: {e}")
+            return {"success": False, "message": str(e)}
+
+    @staticmethod
+    def disconnect_session() -> Dict[str, Any]:
+        """
+        Disconnects current WhatsApp session and releases socket.
+        """
+        url = f"{settings.whatsapp_connector_url}/disconnect"
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.post(url, headers=WhatsAppService._auth_headers())
+                if response.status_code == 200:
+                    return response.json()
+                return {"success": False, "message": f"Disconnect returned {response.status_code}"}
+        except httpx.RequestError as e:
+            logger.error(f"Failed to disconnect connector session: {e}")
+            return {"success": False, "message": str(e)}
+
+    @staticmethod
     def get_groups() -> list:
         """
         Retrieves the list of active groups monitored by the connector.

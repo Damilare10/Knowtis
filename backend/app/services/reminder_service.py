@@ -6,7 +6,7 @@ import logging
 from typing import Optional, List
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from app.models import Reminder, AcademicEvent, EventType
+from app.models import Reminder, AcademicEvent, EventType, User
 from app.services.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
@@ -211,7 +211,7 @@ class ReminderService:
     def schedule_automatic_reminders(event: AcademicEvent, db: Session) -> List[Reminder]:
         """
         Dynamically schedule reminders for a newly created event based on its
-        type and urgency score, rather than using fixed hardcoded offsets.
+        type and urgency score, using the user's preferred advance notice hours.
         """
         if not event or not event.date_time:
             return []
@@ -232,6 +232,13 @@ class ReminderService:
         if time_to_event <= timedelta(0):
             return []
 
+        # Get user's preferred advance notice hours (default 3 hours)
+        user = db.query(User).filter(User.id == event.user_id).first()
+        advance_hours = user.notification_advance_hours if user else 3
+        
+        # Ensure advance_hours is within reasonable bounds
+        advance_hours = max(0, min(advance_hours, 24))
+
         offsets = []
 
         # High priority/urgent events (DEADLINE, ALERT, or urgency_score >= 0.8)
@@ -242,27 +249,31 @@ class ReminderService:
             # 2. Final day nudge (24 hours before)
             if time_to_event > timedelta(days=1, hours=12):
                 offsets.append(timedelta(days=1))
-            # 3. Last chance nudge (3 hours before)
-            if time_to_event > timedelta(hours=4):
-                offsets.append(timedelta(hours=3))
+            # 3. Last chance nudge (user's preferred hours before, min 3 hours)
+            last_chance_hours = max(advance_hours, 3)
+            if time_to_event > timedelta(hours=last_chance_hours + 1):
+                offsets.append(timedelta(hours=last_chance_hours))
         
         # Medium priority events (urgency_score between 0.5 and 0.8)
         elif event.urgency_score >= 0.5:
             # 1. Day before nudge (12 hours before)
             if time_to_event > timedelta(hours=14):
                 offsets.append(timedelta(hours=12))
-            # 2. Final hours nudge (3 hours before)
-            if time_to_event > timedelta(hours=4):
-                offsets.append(timedelta(hours=3))
+            # 2. Final hours nudge (user's preferred hours before, min 3 hours)
+            last_chance_hours = max(advance_hours, 3)
+            if time_to_event > timedelta(hours=last_chance_hours + 1):
+                offsets.append(timedelta(hours=last_chance_hours))
         
         # Low priority/informational events
         else:
-            # 1. Final hours nudge (3 hours before)
-            if time_to_event > timedelta(hours=4):
-                offsets.append(timedelta(hours=3))
+            # 1. Final hours nudge (user's preferred hours before, min 3 hours)
+            last_chance_hours = max(advance_hours, 3)
+            if time_to_event > timedelta(hours=last_chance_hours + 1):
+                offsets.append(timedelta(hours=last_chance_hours))
 
         # If we couldn't schedule any advance reminders (e.g., event starts very soon),
-        # but the event is high priority and starts in more than 15 minutes, schedule an immediate reminder
+        # but the event is high priority and starts in more than 15 minutes,
+        # schedule an immediate reminder
         if not offsets and time_to_event > timedelta(minutes=15):
             offsets.append(timedelta(minutes=0))
 

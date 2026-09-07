@@ -30,6 +30,7 @@ class UserBase(_KnowtisBaseModel):
     full_name: Optional[str] = None
     whatsapp_number: Optional[str] = None
     fcm_token: Optional[str] = None
+    notification_advance_hours: int = 3
 
 
 class UserRegister(_KnowtisBaseModel):
@@ -71,6 +72,8 @@ class UsernameCheckResponse(_KnowtisBaseModel):
     username: str
     available: bool
     suggestion: Optional[str] = None
+    reason: Optional[str] = None
+
 
 
 class UserLogin(_KnowtisBaseModel):
@@ -84,6 +87,7 @@ class UserUpdate(_KnowtisBaseModel):
     password: Optional[str] = None
     whatsapp_number: Optional[str] = None
     fcm_token: Optional[str] = None
+    notification_advance_hours: Optional[int] = None
 
 
 class UserUpgrade(_KnowtisBaseModel):
@@ -100,6 +104,7 @@ class UserResponse(UserBase):
     auth_provider: str
     created_at: datetime
     ai_tokens_received: int = 0
+    notification_advance_hours: int = 3
 
     class Config:
         from_attributes = True
@@ -133,10 +138,21 @@ class AcademicEventCreate(AcademicEventBase):
     pass
 
 
+class AcademicEventUpdate(_KnowtisBaseModel):
+    title: Optional[str] = None
+    course_code: Optional[str] = None
+    date_time: Optional[datetime] = None
+    venue: Optional[str] = None
+    event_type: Optional[EventType] = None
+
+
 class AcademicEventResponse(AcademicEventBase):
     id: UUID
     user_id: UUID
     group_id: Optional[UUID] = None
+    group_name: Optional[str] = None
+    status: Optional[str] = "ACTIVE"
+    date_precision: Optional[str] = "unknown"
     reminder_state: ReminderState
     urgency_score: float
     confidence_score: float
@@ -144,9 +160,11 @@ class AcademicEventResponse(AcademicEventBase):
     actionability_score: float
     is_duplicate: bool
     canonical_event_id: Optional[UUID] = None
+    needs_review: bool = True
     source_message_id: Optional[str] = None
     source_group_jid: Optional[str] = None
     is_archived: bool
+    revisions: Optional[List[Any]] = None
     created_at: datetime
     updated_at: datetime
 
@@ -157,8 +175,10 @@ class AcademicEventResponse(AcademicEventBase):
 class AcademicEventListResponse(_KnowtisBaseModel):
     items: List[AcademicEventResponse]
     total: int
-    skip: int
-    limit: int
+    skip: int = 0
+    limit: int = 20
+    truncated: bool = False
+    plan_limit: Optional[int] = None
 
 
 class SemanticSearchResponse(_KnowtisBaseModel):
@@ -204,6 +224,7 @@ class NotificationResponse(_KnowtisBaseModel):
     id: UUID
     user_id: UUID
     event_id: Optional[UUID] = None
+    event: Optional[AcademicEventResponse] = None
     notification_type: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
@@ -220,6 +241,7 @@ class NightBriefResponse(_KnowtisBaseModel):
     deadline_count: int
     alert_count: int
     event_count: int
+    added_today_count: int
     upcoming_deadlines: List[AcademicEventResponse]
     active_alerts: List[AcademicEventResponse]
     summary: str
@@ -236,29 +258,22 @@ class WhatsAppGroupResponse(_KnowtisBaseModel):
     is_active: bool
     join_date: datetime
     created_at: datetime
+    monitored_keywords: Optional[List[str]] = []
+    monitored_courses: Optional[List[str]] = []
+    filter_mode: Optional[str] = "ALL"
 
     class Config:
         from_attributes = True
+
+
+class UpdateGroupFilterRequest(_KnowtisBaseModel):
+    monitored_keywords: Optional[List[str]] = None
+    monitored_courses: Optional[List[str]] = None
+    filter_mode: Optional[str] = None  # "ALL" | "FILTERED". None means "don't change"
 
 
 class JoinGroupRequest(_KnowtisBaseModel):
     invite_link: str
-
-
-# ── Calendar Schemas ──────────────────────────────────────────────────────────
-
-class CalendarConnectRequest(_KnowtisBaseModel):
-    provider: str  # "google" | "outlook"
-    auth_code: str
-
-
-class CalendarStatusResponse(_KnowtisBaseModel):
-    provider: str
-    is_active: bool
-    last_sync: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
 
 
 # ── OCR Schemas ───────────────────────────────────────────────────────────────
@@ -307,12 +322,19 @@ class AIQueryResponse(_KnowtisBaseModel):
     retrieval: AIRetrievalInfo = Field(default_factory=AIRetrievalInfo)
 
 
+class ActionConfirmation(_KnowtisBaseModel):
+    tool: str
+    success: bool
+    message: str
+
+
 class ChatMessageResponse(_KnowtisBaseModel):
     id: str
     role: str
     content: str
     day: Optional[str] = None
     created_at: Optional[str] = None
+    actions: Optional[List[ActionConfirmation]] = None
 
     class Config:
         from_attributes = True
@@ -398,7 +420,8 @@ class PredictionRecordListResponse(_KnowtisBaseModel):
 
 
 class TrainingFeedbackCreate(_KnowtisBaseModel):
-    prediction_id: UUID
+    prediction_id: Optional[UUID] = None
+    academic_event_id: Optional[UUID] = None
     feedback_type: FeedbackType
     corrected_category: Optional[str] = None
     corrected_course_code: Optional[str] = None
@@ -450,5 +473,193 @@ class ResearchOnboardingStatus(_KnowtisBaseModel):
     skipped: bool
     heard_about: Optional[ResearchHeardAbout] = None
     primary_use_case: Optional[str] = None
+
+
+# ── Admin Schemas ────────────────────────────────────────────────────────────
+
+class AdminUserAdminUpdate(_KnowtisBaseModel):
+    is_active: Optional[bool] = None
+    role: Optional[str] = None
+    tier: Optional[str] = None
+    ai_tokens_received: Optional[int] = None
+
+
+class AdminUserListResponse(_KnowtisBaseModel):
+    items: List[UserResponse]
+    total: int
+    skip: int
+    limit: int
+
+
+class AdminStatsOverview(_KnowtisBaseModel):
+    total_users: int
+    active_users: int
+    inactive_users: int
+    new_users_24h: int
+    new_users_7d: int
+    free_users: int
+    premium_users: int
+    admin_users: int
+    
+    total_whatsapp_groups: int
+    active_whatsapp_groups: int
+    degraded_whatsapp_groups: int
+    paused_whatsapp_groups: int
+    recovering_whatsapp_groups: int
+    
+    total_raw_messages: int
+    processed_messages: int
+    pending_messages: int
+    failed_messages: int
+    
+    total_events: int
+    events_by_type: dict
+    duplicate_events: int
+    archived_events: int
+    
+    total_reminders: int
+    sent_reminders: int
+    
+    total_ai_tokens: int
+    total_chat_messages: int
+    
+    ocr_extractions_count: int
+    onboarding_survey_stats: dict
+
+
+class AdminGroupStateOverride(_KnowtisBaseModel):
+    coverage_state: str
+
+
+class AdminBroadcastRequest(_KnowtisBaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(..., min_length=1)
+    target_tier: str = Field(default="all")
+
+
+# ── Notification Template Schemas ───────────────────────────────────────────────
+
+class NotificationTemplateBase(_KnowtisBaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    title_template: str = Field(..., min_length=1, max_length=500)
+    body_template: str = Field(..., min_length=1)
+    variables: List[str] = Field(default_factory=list)
+    category: str = Field(default="general")
+    is_active: bool = True
+
+
+class NotificationTemplateCreate(NotificationTemplateBase):
+    pass
+
+
+class NotificationTemplateUpdate(_KnowtisBaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    title_template: Optional[str] = Field(None, min_length=1, max_length=500)
+    body_template: Optional[str] = Field(None, min_length=1)
+    variables: Optional[List[str]] = None
+    category: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class NotificationTemplateResponse(NotificationTemplateBase):
+    id: UUID
+    created_by: Optional[UUID] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class NotificationTemplateListResponse(_KnowtisBaseModel):
+    items: List[NotificationTemplateResponse]
+    total: int
+    skip: int
+    limit: int
+
+
+# ── Rate Limit Dashboard Schemas ────────────────────────────────────────────────
+
+class RateLimitLogResponse(_KnowtisBaseModel):
+    id: UUID
+    user_id: Optional[UUID] = None
+    ip_address: Optional[str] = None
+    endpoint: str
+    method: str
+    limit_key: str
+    limit_rule: str
+    current_count: int
+    limit_max: int
+    blocked: bool
+    user_tier: Optional[str] = None
+    user_agent: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RateLimitLogListResponse(_KnowtisBaseModel):
+    items: List[RateLimitLogResponse]
+    total: int
+    skip: int
+    limit: int
+
+
+class RateLimitStatsResponse(_KnowtisBaseModel):
+    total_requests: int
+    blocked_requests: int
+    unique_users: int
+    unique_ips: int
+    top_endpoints: List[dict]
+    top_blocked_endpoints: List[dict]
+    by_tier: dict
+    by_hour: List[dict]
+
+
+# ── Structured AI Extraction Schemas ──────────────────────────────────────────
+
+class ExtractedEventItem(BaseModel):
+    action_type: str = Field(default="CREATE", description="CREATE (new event), UPDATE (reschedule/venue/deadline change), or CANCEL (cancelled/postponed)")
+    category: Optional[str] = Field(default="INFO", description="DEADLINE, EVENT, ALERT, or INFO")
+    course_code: Optional[str] = Field(default=None, description="Uppercase normalized course code like CSC301")
+    title: str = Field(default="", description="Concise info card title (max 80 chars). Empty means the model omitted it; the extraction layer then salvages or rejects the event rather than persisting a placeholder.")
+    description: Optional[str] = Field(default=None, description="Extracted event details")
+    venue: Optional[str] = Field(default=None, description="Location or venue")
+    date_expression: Optional[str] = Field(default=None, description="The temporal phrase exactly as written, e.g. 'next friday 2pm'. Resolved downstream by TemporalParser.")
+    date_is_explicit: bool = Field(default=False, description="True when the message states a date or day; False for vague terms like 'soon'")
+    # Deprecated: models are no longer asked for a resolved date, because LLM
+    # date arithmetic is unverifiable and untestable. Accepted for one release
+    # so an older prompt response does not hard-fail validation; ignored by
+    # _wrap_batch_result, which logs when it appears.
+    date_time: Optional[str] = Field(default=None, description="DEPRECATED, ignored. Use date_expression.")
+    lecturer: Optional[str] = Field(default=None, description="Lecturer or instructor name")
+    # Deprecated: urgency is derived locally from time-to-deadline by
+    # urgency_service, never taken from the model.
+    urgency_score: float = Field(default=0.5, ge=0.0, le=1.0, description="DEPRECATED, ignored.")
+    confidence_score: float = Field(default=0.8, ge=0.0, le=1.0)
+    relevance_score: float = Field(default=0.7, ge=0.0, le=1.0)
+    actionability_score: float = Field(default=0.6, ge=0.0, le=1.0)
+    needs_review: bool = Field(default=False)
+    event_completeness: str = Field(default="complete", description="complete, missing_course, missing_date, etc.")
+
+
+class SingleMessageAIResponse(BaseModel):
+    classification: str = Field(default="NOISE", description="SIGNAL or NOISE")
+    events: List[ExtractedEventItem] = Field(default_factory=list, description="Array of extracted events for SIGNAL messages")
+
+
+class BatchMessageAIItem(BaseModel):
+    index: int = Field(..., description="Message number / index in batch")
+    classification: str = Field(default="NOISE", description="SIGNAL or NOISE")
+    events: List[ExtractedEventItem] = Field(default_factory=list, description="Array of extracted events")
+
+
+class BatchMessageAIResponse(BaseModel):
+    items: List[BatchMessageAIItem] = Field(default_factory=list)
+
+
 
 

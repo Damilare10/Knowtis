@@ -148,21 +148,33 @@ class AuthService:
         """
         Validate a raw refresh token.
         Returns (User, RefreshToken record) if valid, None otherwise.
+        Includes a 30-second grace period for recently rotated tokens to prevent
+        race condition 401 failures during parallel frontend requests.
         """
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
 
         record = db.query(RefreshToken).filter(
             RefreshToken.token_hash == token_hash,
-            RefreshToken.revoked == False,
         ).first()
 
         if not record:
             return None
 
+        # Check expiration
         if datetime.utcnow() > record.expires_at:
             record.revoked = True
             db.commit()
             return None
+
+        # Grace period handling for parallel request token rotation
+        if record.revoked:
+            recent_active = db.query(RefreshToken).filter(
+                RefreshToken.user_id == record.user_id,
+                RefreshToken.revoked == False,
+                RefreshToken.created_at >= datetime.utcnow() - timedelta(seconds=30)
+            ).first()
+            if not recent_active:
+                return None
 
         user = db.query(User).filter(User.id == record.user_id).first()
         if not user or not user.is_active:

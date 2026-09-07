@@ -17,7 +17,6 @@ Responsibilities:
 
 The listener is driven by a Celery beat task defined in ``app.tasks``.
 """
-import json
 import logging
 import time
 from abc import ABC, abstractmethod
@@ -29,20 +28,12 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal
 from app.models import (
-    AcademicEvent,
     CoverageState,
-    EventType,
     ProcessingStatus,
     RawMessage,
-    ReminderState,
     WhatsAppGroup,
 )
-from app.services.classifier_service import Classification, MessageClassifier
-from app.services.deduplication_service import DeduplicationService
-from app.services.notification_service import NotificationService
-from app.services.training_feedback_service import TrainingFeedbackService
 from app.services.whatsapp_service import WhatsAppService
-from app.utils import generate_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -125,8 +116,14 @@ class WhatsAppListenerService:
     # ------------------------------------------------------------------
     def ingest_message(self, group: WhatsAppGroup, msg: Dict[str, Any], db: Session) -> bool:
         """
-        Persist a single inbound message idempotently and run classification +
-        semantic dedup. Returns True when a new message was stored.
+        Persist a single inbound message idempotently.
+
+        Classification and event extraction have been removed (step 2) — the
+        batch writer ``process_message_batch`` is now the only path to
+        ``AcademicEvent``.  Messages arrive with ``ai_processed = False`` and
+        are picked up on the next 2-minute dispatch cycle.
+
+        Returns True when a new message was stored.
         """
         message_id = msg.get("message_id") or self._synthesize_id(msg)
         group_id = group.id
@@ -140,13 +137,10 @@ class WhatsAppListenerService:
             return False  # already ingested -> idempotent no-op
 
         text = msg.get("message_text") or ""
-        classification: Optional[str] = None
-        confidence: Optional[float] = None
 
-        if text:
-            label, conf = MessageClassifier.classify_message(text)
-            classification = label.value
-            confidence = conf
+        # Single shared hash contract with the prefilter — never reimplement it
+        # here, or the two normalisations drift and repeat detection breaks.
+        from app.services.prefilter import compute_text_hash
 
         raw = RawMessage(
             user_id=group.user_id,
@@ -157,24 +151,13 @@ class WhatsAppListenerService:
             message_text=text,
             message_type=msg.get("message_type"),
             has_media=bool(msg.get("has_media", False)),
-            classification=classification,
-            confidence_score=confidence,
-            processing_status=ProcessingStatus.PROCESSED if text else ProcessingStatus.PENDING,
+            text_hash=compute_text_hash(text),
+            # Ingest only stores the message; process_message_batch is what
+            # processes it. Claiming PROCESSED here would make the field
+            # meaningless and contradict the SKIPPED_*/QUARANTINED members.
+            processing_status=ProcessingStatus.PENDING if text else ProcessingStatus.SKIPPED_EMPTY,
         )
         db.add(raw)
-
-        if text and classification == Classification.SIGNAL.value:
-            try:
-                self._extract_event(group, raw, text, db)
-            except Exception as exc:
-                logger.error(
-                    "Event extraction/deduplication failed for raw message %s: %s",
-                    message_id,
-                    exc,
-                    exc_info=True,
-                )
-                raw.processing_status = ProcessingStatus.FAILED
-
         db.commit()
         return True
 
@@ -187,57 +170,6 @@ class WhatsAppListenerService:
             for k in ("sender_jid", "message_text", "timestamp")
         )
         return hashlib.sha1(seed.encode("utf-8")).hexdigest()
-
-    @staticmethod
-    def _extract_event(
-        group: WhatsAppGroup, raw: RawMessage, text: str, db: Session
-    ) -> None:
-        """Classify a signal message into a structured academic event with dedup."""
-        from app.services.event_extraction_service import EventExtractionService
-
-        event_data = EventExtractionService.extract_event(text, db=db, msg_created_at=raw.created_at)
-        if not event_data:
-            return
-
-        embedding = generate_embedding(text)
-        event = AcademicEvent(
-            user_id=group.user_id,
-            group_id=group.id,
-            event_type=EventType(event_data["event_type"]),
-            course_code=event_data.get("course_code"),
-            title=event_data["title"][:500],
-            description=event_data.get("description"),
-            venue=event_data.get("venue"),
-            date_time=event_data.get("date_time"),
-            reminder_state=ReminderState.PENDING,
-            urgency_score=event_data["urgency_score"],
-            confidence_score=event_data["confidence_score"],
-            relevance_score=event_data["relevance_score"],
-            actionability_score=event_data["actionability_score"],
-            embedding=json.dumps(embedding) if embedding else None,
-            source_message_id=raw.message_id,
-            source_group_jid=group.group_jid,
-        )
-        db.add(event)
-        db.flush()
-
-        TrainingFeedbackService.record_prediction(
-            db=db,
-            user_id=group.user_id,
-            message_text=text,
-            event_data=event_data,
-            raw_message_id=raw.id,
-            academic_event_id=event.id,
-        )
-
-        duplicate = DeduplicationService.find_duplicate(
-            user_id=group.user_id,
-            new_event_text=text,
-            group_id=group.id,
-            db=db,
-        )
-        if duplicate and duplicate.id != event.id:
-            DeduplicationService.mark_as_duplicate(event.id, duplicate.id, db)
 
     # ------------------------------------------------------------------
     # Polling
@@ -265,6 +197,11 @@ class WhatsAppListenerService:
         self._failures[group_jid] = 0
         if group.coverage_state == CoverageState.DEGRADED:
             logger.info("Connector recovered for %s; connectivity restored", group_jid)
+            group.coverage_state = CoverageState.ACTIVE
+            group.last_coverage_update = datetime.utcnow()
+            if group.outage_start:
+                group.outage_end = datetime.utcnow()
+            db.commit()
 
         ingested = 0
         for msg in messages:
@@ -396,11 +333,15 @@ class WhatsAppListenerService:
                         )
                 else:
                     # Bot present -> recover connectivity-based degradation
-                    if group.coverage_state == CoverageState.DEGRADED:
+                    # and stuck RECOVERING groups that couldn't self-heal.
+                    prev_state = group.coverage_state
+                    if group.coverage_state in (CoverageState.DEGRADED, CoverageState.RECOVERING):
                         group.coverage_state = CoverageState.ACTIVE
                         group.last_coverage_update = datetime.utcnow()
+                        if group.outage_start:
+                            group.outage_end = datetime.utcnow()
                         summary["recovered"] += 1
-                        logger.info("Coverage for %s recovered to ACTIVE", group.group_jid)
+                        logger.info("Coverage for %s recovered to ACTIVE from %s", group.group_jid, prev_state)
 
             db.commit()
             return summary

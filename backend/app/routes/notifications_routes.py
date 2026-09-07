@@ -11,6 +11,7 @@ from app.database import get_db
 from app.models import NotificationInbox, AcademicEvent, EventType, User
 from app.schemas import NotificationResponse, NightBriefResponse, AcademicEventResponse
 from app.dependencies import get_current_user
+from sqlalchemy.orm import joinedload
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,9 @@ async def list_notifications(
 ):
     """List notification inbox for the current user"""
     try:
-        query = db.query(NotificationInbox).filter(
+        query = db.query(NotificationInbox).options(
+            joinedload(NotificationInbox.event)
+        ).filter(
             NotificationInbox.user_id == user.id
         )
         if unread_only:
@@ -135,12 +138,23 @@ async def get_night_brief(
     db: Session = Depends(get_db),
 ):
     """
-    Generate a Night Brief summary: upcoming deadlines and alerts for the next 24 hours.
+    Generate a Night Brief summary: upcoming deadlines, alerts for the next 24 hours,
+    and events added/scraped today.
     Premium users get instant on-demand access; free users see the same content.
     """
     try:
         now = datetime.utcnow()
         tomorrow = now + timedelta(hours=24)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # Fetch events added/scraped today (created_at since midnight UTC)
+        added_today = db.query(AcademicEvent).filter(
+            AcademicEvent.user_id == user.id,
+            AcademicEvent.is_archived == False,
+            AcademicEvent.is_duplicate == False,
+            AcademicEvent.event_type.in_([EventType.DEADLINE, EventType.EVENT, EventType.ALERT]),
+            AcademicEvent.created_at >= today_start,
+        ).order_by(AcademicEvent.created_at.desc()).limit(10).all()
 
         # Fetch upcoming DEADLINE events within 24 hours
         deadlines = db.query(AcademicEvent).filter(
@@ -170,22 +184,25 @@ async def get_night_brief(
             AcademicEvent.date_time <= tomorrow,
         ).order_by(AcademicEvent.date_time.asc()).all()
 
-        total_items = len(deadlines) + len(alerts)
+        total_items = len(deadlines) + len(alerts) + len(added_today)
         if total_items == 0:
-            summary = "You're all caught up! No urgent deadlines or alerts in the next 24 hours."
+            summary = "You're all caught up! No urgent deadlines, alerts, or new updates on the horizon."
         else:
             parts = []
+            if added_today:
+                parts.append(f"{len(added_today)} update(s) added today")
             if deadlines:
                 parts.append(f"{len(deadlines)} deadline(s) coming up")
             if alerts:
                 parts.append(f"{len(alerts)} active alert(s)")
-            summary = "Night Brief: " + ", ".join(parts) + ". Stay on top of your academic schedule."
+            summary = "Today's Briefing: " + ", ".join(parts) + ". Stay on top of your academic schedule."
 
         return {
             "generated_at": now,
             "deadline_count": len(deadlines),
             "alert_count": len(alerts),
             "event_count": len(events_query),
+            "added_today_count": len(added_today),
             "upcoming_deadlines": deadlines,
             "active_alerts": alerts,
             "summary": summary,
