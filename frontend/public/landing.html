@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Knowtis — Every class deadline, caught for you</title>
+  <meta name="description" content="Knowtis quietly watches your university WhatsApp class groups, catches every test, submission, and registration deadline, and turns them into calendar events and one calm evening brief — automatically. Open beta on Android.">
+  <link rel="icon" type="image/jpeg" href="/20260907_114049.jpg">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,600&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS Play CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'sans-serif'],
+            display: ['"Outfit"', '"Plus Jakarta Sans"', '-apple-system', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              orange: '#FF5A36',
+              'orange-dark': '#D93A1C',
+              'orange-light': '#FFF0EB',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <link rel="stylesheet" href="/landing.css">
+</head>
+<body class="min-h-dvh overflow-x-hidden text-[#171717] font-sans selection:bg-[#FFD8CD] selection:text-[#C83C21]">
+
+  <!-- 1. Fluid Island Navbar -->
+  <header class="fixed inset-x-0 top-0 z-50 pt-2 sm:pt-6 px-3 sm:px-4 pointer-events-none transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]" id="island-nav">
+    <div class="mx-auto flex w-full max-w-[1000px] items-center justify-between gap-2 sm:gap-6 rounded-full border border-black/5 bg-white/90 px-3 py-1.5 sm:px-4 sm:py-2.5 shadow-[0_8px_32px_rgba(0,0,0,0.04),inset_0_1px_1px_rgba(255,255,255,1)] backdrop-blur-md pointer-events-auto transition-transform duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]">
+      <a href="#" class="flex items-center gap-2 sm:gap-3 pl-1 sm:pl-2 transition-transform hover:scale-105 active:scale-95" aria-label="Knowtis home">
+        <img src="/20260907_112508.png" alt="Knowtis Logo" class="h-7 w-7 sm:h-8 sm:w-8 rounded-[8px] sm:rounded-[10px] object-cover shadow-[0_4px_12px_rgba(30,30,30,0.12)]">
+        <span class="text-[15px] sm:text-[17px] font-black tracking-[-0.04em] font-display">Knowtis</span>
+      </a>
+      
+      <nav class="hidden items-center gap-8 text-[13px] font-bold text-[#5F5F59] md:flex">
+        <a href="#how" class="transition-colors hover:text-[#171717]">How it works</a>
+        <a href="#benefits" class="transition-colors hover:text-[#171717]">Benefits</a>
+        <a href="#features" class="transition-colors hover:text-[#171717]">Features</a>
+        <a href="#pricing" class="transition-colors hover:text-[#171717]">Pricing</a>
+      </nav>
+      
+      <div class="flex items-center gap-1.5 sm:gap-2">
+        <a href="/knowtis-app.apk" download class="group flex items-center gap-1.5 sm:gap-2 rounded-full bg-[#171717] pl-3 sm:pl-5 pr-1 py-1 sm:py-1.5 text-[12px] sm:text-[13px] font-bold text-white transition-all active:scale-[0.96]">
+          <span class="hidden sm:inline">Download App</span>
+          <span class="sm:hidden">Download</span>
+          <span class="grid h-6 w-6 sm:h-7 sm:w-7 place-items-center rounded-full bg-white/10 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-110 group-hover:bg-white/20 group-hover:translate-x-0.5 group-hover:-translate-y-[0.5px]">
+            <svg class="h-3 w-3 sm:h-3.5 sm:w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path>
+            </svg>
+          </span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Wrapper -->
+  <div class="relative z-10 mx-auto mt-20 sm:mt-32 flex w-full max-w-[1180px] flex-col px-5 sm:px-6 lg:px-8">
+
+    <!-- 2. Hero Section -->
+    <section class="grid lg:min-h-[calc(100dvh-160px)] items-center justify-items-center gap-8 sm:gap-16 pt-2 pb-12 sm:pt-10 sm:pb-20 lg:grid-cols-[0.9fr_1.1fr] lg:gap-20 lg:py-16">
+      <div class="max-w-[620px] w-full min-w-0 mx-auto lg:mx-0 text-center lg:text-left flex flex-col items-center lg:items-start scroll-reveal is-revealed">
+        <h1 class="font-display text-[clamp(38px,11vw,84px)] font-black leading-[1.02] sm:leading-[0.92] tracking-[-0.04em] text-[#171717] break-words">
+          Every deadline, <span class="text-brand-orange">caught for you</span>.
+        </h1>
+        <p class="mt-4 sm:mt-8 max-w-[520px] mx-auto lg:mx-0 text-[15px] sm:text-[19px] font-medium leading-relaxed text-[#5F5F59]">
+          Knowtis quietly watches your university WhatsApp class groups, catches every test, submission, and registration deadline, and turns them into calendar events and one calm evening brief. No scrolling. No screenshots. No manual reminders.
+        </p>
+        <div class="mt-6 sm:mt-12 flex flex-col items-stretch sm:items-center justify-center lg:justify-start gap-3 sm:gap-4 w-full sm:w-auto">
+          <!-- Primary CTA: direct APK download (open beta) -->
+          <a href="/knowtis-app.apk" download class="group flex min-h-[52px] sm:min-h-[64px] items-center justify-between sm:justify-start gap-4 rounded-full bg-[#171717] px-5 sm:pl-6 sm:pr-2 py-2 text-[14px] sm:text-[15px] font-bold text-white shadow-[0_16px_40px_rgba(30,30,30,0.2)] transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.97] hover:shadow-[0_24px_50px_rgba(30,30,30,0.3)]">
+            <svg class="h-5 w-5 sm:h-6 sm:w-6 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h2v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V9H6v9z"></path><path d="M3.5 9a1.5 1.5 0 0 0-1.5 1.5v5a1.5 1.5 0 0 0 3 0v-5A1.5 1.5 0 0 0 3.5 9z"></path><path d="M20.5 9a1.5 1.5 0 0 0-1.5 1.5v5a1.5 1.5 0 0 0 3 0v-5a1.5 1.5 0 0 0-1.5-1.5z"></path><path d="M16.4 4.8l1.3-2.25a.5.5 0 0 0-.86-.5l-1.32 2.28A7.35 7.35 0 0 0 12 3.47c-1.25 0-2.43.29-3.48.8L7.2 2.06a.5.5 0 1 0-.87.5l1.3 2.24A7.26 7.26 0 0 0 5 10h14a7.26 7.26 0 0 0-2.6-5.2zM9.5 8a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5zm5 0a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5z"></path></svg>
+            <span>Download Android beta</span>
+            <span class="grid h-9 w-9 sm:h-11 sm:w-11 place-items-center rounded-full bg-white/10 transition-all duration-500 group-hover:scale-105 group-hover:bg-white/20">
+              <svg class="h-4 w-4 sm:h-5 sm:w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+            </span>
+          </a>
+
+          <!-- Store listings: not live yet, visibly disabled -->
+          <div class="flex flex-wrap items-center justify-center lg:justify-start gap-2.5">
+            <div class="store-soon flex items-center gap-2 rounded-full border-2 border-black/5 bg-white/60 px-4 sm:px-5 py-2 text-[12px] sm:text-[13px] font-bold text-[#5F5F59]" aria-disabled="true" title="Coming soon">
+              <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-1.707l2.573 1.49c.906.524.906 1.496 0 2.02l-2.573 1.49-2.573-2.5 2.573-2.5zM5.864 1.469L16.8 7.8l-2.302 2.302-8.635-8.635z"/></svg>
+              <span class="store-soon-label">Google Play</span>
+              <span class="rounded-full bg-[#FFF0EB] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.15em] text-[#D93A1C]">soon</span>
+            </div>
+            <div class="store-soon flex items-center gap-2 rounded-full border-2 border-black/5 bg-white/60 px-4 sm:px-5 py-2 text-[12px] sm:text-[13px] font-bold text-[#5F5F59]" aria-disabled="true" title="Coming soon">
+              <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+              <span class="store-soon-label">App Store</span>
+              <span class="rounded-full bg-[#FFF0EB] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.15em] text-[#D93A1C]">soon</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hero Image/Demo Area - Enhanced Double-Bezel -->
+      <div class="relative mx-auto w-full max-w-[600px] scroll-reveal is-revealed">
+        <!-- Double-Bezel Main Mockup -->
+        <div class="rounded-[1.75rem] sm:rounded-[3rem] bg-white p-1 sm:p-2 border border-black/[0.06] shadow-[0_40px_100px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)]">
+          <div class="rounded-[calc(1.75rem-0.25rem)] sm:rounded-[calc(3rem-0.5rem)] border border-black/5 bg-white p-3.5 sm:p-8 shadow-[inset_0_1px_1px_rgba(255,255,255,1)]">
+            <div class="mb-4 sm:mb-8 flex items-center justify-between">
+              <div>
+                <p class="text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] text-[#A3A29C]">Today</p>
+                <h2 class="mt-0.5 sm:mt-1 text-xl sm:text-3xl font-black tracking-[-0.05em] font-display">Your Briefing</h2>
+              </div>
+              <div class="grid h-10 w-10 sm:h-16 sm:w-16 place-items-center rounded-[0.875rem] sm:rounded-[1.5rem] bg-gradient-to-b from-[#FF6A49] to-[#FF4B24] text-white shadow-[0_16px_34px_rgba(255,90,54,0.3),inset_0_1px_1px_rgba(255,255,255,0.4)]">
+                <svg class="h-5 w-5 sm:h-7 sm:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>
+              </div>
+            </div>
+
+            <div class="space-y-2.5 sm:space-y-4">
+              <!-- Item 1: ELE401 -->
+              <div class="group flex items-center gap-2.5 sm:gap-4 rounded-[0.875rem] sm:rounded-[1.5rem] border border-black/5 bg-[#FDFDFD] p-2.5 sm:p-4 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-transparent hover:bg-white hover:shadow-[0_16px_32px_rgba(30,30,30,0.04)]">
+                <span class="grid h-9 w-9 sm:h-12 sm:w-12 shrink-0 place-items-center rounded-[0.625rem] sm:rounded-[1rem] transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 bg-[#FFF0EB] text-[#E54835]">
+                  <svg class="h-4 w-4 sm:h-5 sm:w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16.5 12"></polyline></svg>
+                </span>
+                <div class="min-w-0 flex-1">
+                  <p class="text-[8.5px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-[#FF5A36] opacity-80 mb-0.5 sm:mb-1">ELE401</p>
+                  <h3 class="truncate text-[13px] sm:text-[16px] font-black tracking-[-0.02em] text-[#171717]">Technical report submission</h3>
+                </div>
+                <span class="shrink-0 rounded-full bg-black/5 px-2 py-0.5 sm:px-3 sm:py-1.5 text-[9.5px] sm:text-[11px] font-black text-[#74736D] transition-colors group-hover:bg-black/10">Tomorrow</span>
+              </div>
+
+              <!-- Item 2: REG -->
+              <div class="group flex items-center gap-2.5 sm:gap-4 rounded-[0.875rem] sm:rounded-[1.5rem] border border-black/5 bg-[#FDFDFD] p-2.5 sm:p-4 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-transparent hover:bg-white hover:shadow-[0_16px_32px_rgba(30,30,30,0.04)]">
+                <span class="grid h-9 w-9 sm:h-12 sm:w-12 shrink-0 place-items-center rounded-[0.625rem] sm:rounded-[1rem] transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 bg-[#FFF5E1] text-[#B45309]">
+                  <svg class="h-4 w-4 sm:h-5 sm:w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16.5 12"></polyline></svg>
+                </span>
+                <div class="min-w-0 flex-1">
+                  <p class="text-[8.5px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-[#FF5A36] opacity-80 mb-0.5 sm:mb-1">REG</p>
+                  <h3 class="truncate text-[13px] sm:text-[16px] font-black tracking-[-0.02em] text-[#171717]">Course registration closes</h3>
+                </div>
+                <span class="shrink-0 rounded-full bg-black/5 px-2 py-0.5 sm:px-3 sm:py-1.5 text-[9.5px] sm:text-[11px] font-black text-[#74736D] transition-colors group-hover:bg-black/10">Friday</span>
+              </div>
+
+              <!-- Item 3: CSC301 -->
+              <div class="group flex items-center gap-2.5 sm:gap-4 rounded-[0.875rem] sm:rounded-[1.5rem] border border-black/5 bg-[#FDFDFD] p-2.5 sm:p-4 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-transparent hover:bg-white hover:shadow-[0_16px_32px_rgba(30,30,30,0.04)]">
+                <span class="grid h-9 w-9 sm:h-12 sm:w-12 shrink-0 place-items-center rounded-[0.625rem] sm:rounded-[1rem] transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 bg-[#E7ECFF] text-[#3D5CC7]">
+                  <svg class="h-4 w-4 sm:h-5 sm:w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>
+                </span>
+                <div class="min-w-0 flex-1">
+                  <p class="text-[8.5px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-[#FF5A36] opacity-80 mb-0.5 sm:mb-1">CSC301</p>
+                  <h3 class="truncate text-[13px] sm:text-[16px] font-black tracking-[-0.02em] text-[#171717]">Exam timetable released</h3>
+                </div>
+                <span class="shrink-0 rounded-full bg-black/5 px-2 py-0.5 sm:px-3 sm:py-1.5 text-[9.5px] sm:text-[11px] font-black text-[#74736D] transition-colors group-hover:bg-black/10">Today</span>
+              </div>
+            </div>
+
+            <!-- AI Insight Card -->
+            <div class="mt-4 sm:mt-8 rounded-[0.875rem] sm:rounded-[1.5rem] border border-[#FAD7CD]/50 bg-gradient-to-br from-[#FFF0EB] to-[#FAD7CD] p-3.5 sm:p-5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)]">
+              <div class="mb-1.5 sm:mb-3 flex items-center gap-2">
+                <svg class="h-3.5 w-3.5 sm:h-4 sm:w-4 text-[#FF5A36]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"></path><path d="M20 3v4"></path><path d="M22 5h-4"></path><path d="M4 17v2"></path><path d="M5 18H3"></path></svg>
+                <p class="text-[10.5px] sm:text-[12px] font-black uppercase tracking-[0.15em] text-[#D93A1C]">AI Insight</p>
+              </div>
+              <p class="text-[13px] sm:text-[16px] font-bold leading-relaxed text-[#3D332F]">
+                Your next deadline is close. Finish the report draft before registration closes on Friday.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Floating Left Badge -->
+        <div class="absolute -left-6 sm:-left-12 lg:-left-24 top-16 -z-10 hidden w-32 sm:w-40 rounded-[1.5rem] sm:rounded-[2rem] border border-[#D9F1EC]/60 bg-[#D9F1EC] p-4 sm:p-6 shadow-[0_24px_48px_rgba(30,30,30,0.08),inset_0_1px_1px_rgba(255,255,255,0.8)] md:block animate-float-left">
+          <svg class="mb-2 sm:mb-4 h-6 w-6 sm:h-8 sm:w-8 text-[#1C8D5A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"></path><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"></path></svg>
+          <p class="text-3xl sm:text-4xl font-black tracking-[-0.06em] text-[#0A472B]">3</p>
+          <p class="mt-1 text-[9px] sm:text-[10px] font-black text-[#1C8D5A]/80 uppercase tracking-[0.2em]">urgent</p>
+        </div>
+
+        <!-- Floating Right Badge -->
+        <div class="absolute -bottom-8 right-0 hidden w-40 sm:w-52 rounded-[1.5rem] sm:rounded-[2rem] border border-white/10 bg-[#171717] p-4 sm:p-6 text-white shadow-[0_32px_64px_rgba(30,30,30,0.3),inset_0_1px_0_rgba(255,255,255,0.15)] sm:block lg:right-[-32px] animate-float-right">
+          <svg class="mb-2 sm:mb-4 h-6 w-6 sm:h-8 sm:w-8 text-[#D9F1EC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+          <p class="text-[14px] sm:text-[16px] font-black leading-snug tracking-[-0.01em]">Calendar updated automatically</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2B. Who it's built for -->
+    <section class="pb-8 sm:pb-16 scroll-reveal">
+      <div class="flex flex-col items-center gap-4">
+        <p class="text-[10px] sm:text-[11px] font-black uppercase tracking-[0.22em] text-[#A3A29C]">Built for</p>
+        <p class="flex flex-wrap items-center justify-center gap-2.5 text-[15px] sm:text-[17px] font-bold text-[#5F5F59]">
+          <span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white shadow-sm ring-1 ring-black/5">
+            <img src="/whatsapp-logo.svg" alt="" class="h-[18px] w-[18px] object-contain">
+          </span>
+          Nigerian campuses, where the whole semester runs on class WhatsApp groups.
+        </p>
+      </div>
+    </section>
+
+    <!-- 2D. Before / After Band (what changes, honestly — no made-up numbers) -->
+    <section class="py-8 sm:py-12 scroll-reveal">
+      <div class="grid md:grid-cols-3 gap-px overflow-hidden rounded-[2rem] sm:rounded-[2.5rem] border border-black/[0.04] bg-black/[0.04]">
+        <div class="bg-[#FDFDFD] p-6 sm:p-8 lg:p-10 flex flex-col gap-1.5 sm:gap-2 transition-colors duration-500 hover:bg-white">
+          <p class="text-[12px] sm:text-[13px] font-medium text-[#A3A29C] line-through decoration-2 decoration-[#C83C21]/40">400 unread messages</p>
+          <p class="text-[clamp(22px,3vw,32px)] font-black leading-none tracking-[-0.04em] text-[#171717] font-display">One Night Brief</p>
+          <p class="text-[12px] sm:text-[14px] font-medium text-[#74736D]">everything that mattered, in your inbox each evening</p>
+        </div>
+        <div class="bg-[#FDFDFD] p-6 sm:p-8 lg:p-10 flex flex-col gap-1.5 sm:gap-2 transition-colors duration-500 hover:bg-white">
+          <p class="text-[12px] sm:text-[13px] font-medium text-[#A3A29C] line-through decoration-2 decoration-[#C83C21]/40">Deadline screenshots</p>
+          <p class="text-[clamp(22px,3vw,32px)] font-black leading-none tracking-[-0.04em] text-[#171717] font-display">A calendar that builds itself</p>
+          <p class="text-[12px] sm:text-[14px] font-medium text-[#74736D]">events appear the moment they're posted in the group</p>
+        </div>
+        <div class="bg-[#FDFDFD] p-6 sm:p-8 lg:p-10 flex flex-col gap-1.5 sm:gap-2 transition-colors duration-500 hover:bg-white">
+          <p class="text-[12px] sm:text-[13px] font-medium text-[#A3A29C] line-through decoration-2 decoration-[#C83C21]/40">Reminders you set by hand</p>
+          <p class="text-[clamp(22px,3vw,32px)] font-black leading-none tracking-[-0.04em] text-[#171717] font-display">Alerts that set themselves</p>
+          <p class="text-[12px] sm:text-[14px] font-medium text-[#74736D]">you only get pinged when something actually matters</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2C. App Mockup — Phone-frame product showcase -->
+    <section class="py-20 sm:py-28 lg:py-36 relative overflow-hidden" id="product">
+      <!-- Ambient tint -->
+      <div class="pointer-events-none absolute inset-0 -z-10">
+        <div class="absolute -top-32 left-1/2 -translate-x-1/2 h-[420px] w-[820px] rounded-full bg-[radial-gradient(closest-side,rgba(255,90,54,0.10),transparent_70%)]"></div>
+        <div class="absolute bottom-0 right-0 h-[320px] w-[520px] rounded-full bg-[radial-gradient(closest-side,rgba(124,107,224,0.07),transparent_70%)]"></div>
+      </div>
+
+      <!-- Section Header -->
+      <div class="flex flex-col items-center text-center max-w-[760px] mx-auto mb-12 sm:mb-16 px-4 scroll-reveal">
+        <h2 class="text-[clamp(32px,5vw,56px)] font-black leading-[0.95] tracking-[-0.05em] font-display">
+          From chat noise to <span class="gradient-brand-text">calendar clarity</span>.
+        </h2>
+        <p class="mt-4 sm:mt-5 text-[16px] sm:text-[19px] font-medium leading-relaxed text-[#5F5F59] max-w-[560px]">
+          One WhatsApp message in. One deadline on your calendar out. No screenshots, no scrolling back.
+        </p>
+      </div>
+
+      <!-- Mockup Stage -->
+      <div class="relative mx-auto max-w-[1180px] px-4 sm:px-6">
+        <!-- Ground Shadow Plate -->
+        <div class="absolute inset-x-0 top-1/2 -z-10 mx-auto h-[120px] w-[80%] max-w-[700px] -translate-y-1/2 rounded-full bg-[#FF5A36]/8"></div>
+
+        <div class="relative grid items-center justify-items-center gap-10">
+          <!-- CENTER: Phone Mockup -->
+          <div class="relative mx-auto flex items-center justify-center w-full max-w-[360px] scroll-reveal">
+            <div class="relative w-full flex items-center justify-center">
+              <img src="/mockups/app-dashboard.png" alt="Knowtis dashboard showing today's deadlines" width="501" height="1024" class="w-full h-auto object-contain drop-shadow-[0_40px_80px_rgba(20,20,20,0.38)] select-none">
+            </div>
+            <div class="pointer-events-none absolute inset-0 -z-10 m-auto h-[420px] w-[420px] rounded-full bg-[radial-gradient(closest-side,rgba(255,90,54,0.08),transparent_70%)]"></div>
+          </div>
+        </div>
+
+        <!-- Caption Row Feature Pills -->
+        <div class="mx-auto mt-12 sm:mt-16 flex flex-wrap items-center justify-center gap-3 sm:gap-4 max-w-[820px] scroll-reveal">
+          <div class="flex items-center gap-2 rounded-full bg-white px-4 py-2 shadow-[0_8px_24px_rgba(30,30,30,0.04),inset_0_1px_0_rgba(255,255,255,1)] ring-1 ring-black/5">
+            <span class="grid h-6 w-6 place-items-center rounded-full bg-[#FFF0EB] text-[#FF5A36]">
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path></svg>
+            </span>
+            <span class="text-[12px] font-black tracking-[-0.01em] text-[#171717]">Real-time extraction</span>
+          </div>
+          <div class="flex items-center gap-2 rounded-full bg-white px-4 py-2 shadow-[0_8px_24px_rgba(30,30,30,0.04),inset_0_1px_0_rgba(255,255,255,1)] ring-1 ring-black/5">
+            <span class="grid h-6 w-6 place-items-center rounded-full bg-[#D9F1EC] text-[#1C8D5A]">
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path></svg>
+            </span>
+            <span class="text-[12px] font-black tracking-[-0.01em] text-[#171717]">Auto calendar entry</span>
+          </div>
+          <div class="flex items-center gap-2 rounded-full bg-white px-4 py-2 shadow-[0_8px_24px_rgba(30,30,30,0.04),inset_0_1px_0_rgba(255,255,255,1)] ring-1 ring-black/5">
+            <span class="grid h-6 w-6 place-items-center rounded-full bg-[#E7ECFF] text-[#7C6BE0]">
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"></path><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"></path></svg>
+            </span>
+            <span class="text-[12px] font-black tracking-[-0.01em] text-[#171717]">Priority pings only</span>
+          </div>
+          <div class="flex items-center gap-2 rounded-full bg-white px-4 py-2 shadow-[0_8px_24px_rgba(30,30,30,0.04),inset_0_1px_0_rgba(255,255,255,1)] ring-1 ring-black/5">
+            <span class="grid h-6 w-6 place-items-center rounded-full bg-[#FFF5E1] text-[#B45309]">
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"></path><path d="M20 3v4"></path><path d="M22 5h-4"></path><path d="M4 17v2"></path><path d="M5 18H3"></path></svg>
+            </span>
+            <span class="text-[12px] font-black tracking-[-0.01em] text-[#171717]">Night Brief each evening</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. How It Works — 3-step process -->
+    <section class="py-16 lg:py-24" id="how">
+      <div class="flex flex-col items-center text-center max-w-[800px] mx-auto mb-14 sm:mb-18 scroll-reveal">
+        <span class="mb-4 rounded-full bg-black/5 px-4 py-1.5 text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] text-[#74736D]">How it works</span>
+        <h2 class="text-[clamp(32px,5vw,52px)] font-black leading-[0.96] tracking-[-0.05em] font-display">Three steps to clarity.</h2>
+        <p class="mt-4 text-[17px] font-medium leading-relaxed text-[#5F5F59] max-w-[500px]">From chaotic group chat to organised academic timeline — in minutes.</p>
+      </div>
+
+      <div class="grid md:grid-cols-3 gap-8 max-w-[1000px] mx-auto">
+        <!-- Step 1 -->
+        <div class="relative flex flex-col items-center text-center scroll-reveal">
+          <div class="w-16 h-16 rounded-full bg-gradient-to-br from-[#FFF0EB] to-[#FFE6DE] flex items-center justify-center text-xl font-black text-[#171717] shadow-sm mb-5 font-display">
+            01
+          </div>
+          <div class="hidden md:block absolute top-8 left-[calc(50%+3rem)] w-[calc(100%-6rem)] h-px bg-gradient-to-r from-[#FF5A36]/20 to-transparent"></div>
+          <h3 class="text-xl sm:text-2xl font-black tracking-[-0.02em] mb-3 font-display">Connect a group</h3>
+          <p class="text-[15px] font-medium text-[#74736D] leading-relaxed max-w-[260px]">Paste your WhatsApp invite link. Knowtis joins silently as a watcher — no DMs, no outbound messages.</p>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="relative flex flex-col items-center text-center scroll-reveal">
+          <div class="w-16 h-16 rounded-full bg-gradient-to-br from-[#FFF5E1] to-[#FFE8AF] flex items-center justify-center text-xl font-black text-[#171717] shadow-sm mb-5 font-display">
+            02
+          </div>
+          <div class="hidden md:block absolute top-8 left-[calc(50%+3rem)] w-[calc(100%-6rem)] h-px bg-gradient-to-r from-[#FF5A36]/20 to-transparent"></div>
+          <h3 class="text-xl sm:text-2xl font-black tracking-[-0.02em] mb-3 font-display">AI listens &amp; extracts</h3>
+          <p class="text-[15px] font-medium text-[#74736D] leading-relaxed max-w-[260px]">Messages are classified, deduplicated, and converted into structured academic events with urgency scores.</p>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="relative flex flex-col items-center text-center scroll-reveal">
+          <div class="w-16 h-16 rounded-full bg-gradient-to-br from-[#E7ECFF] to-[#D4C5F9] flex items-center justify-center text-xl font-black text-[#171717] shadow-sm mb-5 font-display">
+            03
+          </div>
+          <h3 class="text-xl sm:text-2xl font-black tracking-[-0.02em] mb-3 font-display">Your briefing is ready</h3>
+          <p class="text-[15px] font-medium text-[#74736D] leading-relaxed max-w-[260px]">Deadlines, alerts, and schedule changes appear in your dashboard, widgets, and daily Night Brief — without you setting a single reminder.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3B. Benefits Section ("Filter the noise") -->
+    <section class="py-24 lg:py-40" id="benefits">
+      <div class="flex flex-col items-center text-center max-w-[800px] mx-auto mb-16 sm:mb-20 scroll-reveal">
+        <span class="mb-4 sm:mb-6 rounded-full bg-black/5 px-4 py-1.5 text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] text-[#74736D]">What you get</span>
+        <h2 class="text-[clamp(36px,6vw,64px)] font-black leading-[0.96] tracking-[-0.05em] font-display">Filter the noise.</h2>
+        <p class="mt-4 sm:mt-6 text-[17px] sm:text-[20px] font-medium leading-relaxed text-[#5F5F59]">The product keeps the familiar group-chat flow, then removes the mental sorting work entirely.</p>
+      </div>
+
+      <div class="grid gap-6 md:grid-cols-3">
+        <!-- Benefit Card 1 -->
+        <article class="group rounded-[2rem] sm:rounded-[2.5rem] bg-black/[0.02] p-1.5 sm:p-2 border border-black/[0.04] transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-black/[0.04] scroll-reveal">
+          <div class="h-full w-full rounded-[calc(2rem-0.5rem)] sm:rounded-[calc(2.5rem-0.5rem)] bg-white p-6 sm:p-10 shadow-[0_24px_54px_rgba(0,0,0,0.02),inset_0_1px_0_rgba(255,255,255,1)] flex flex-col items-center text-center transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[0.99]">
+            <div class="mb-6 sm:mb-8 grid h-14 w-14 sm:h-16 sm:w-16 place-items-center rounded-[1rem] sm:rounded-[1.25rem] shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] bg-gradient-to-b from-[#FFF0EB] to-[#FFE6DE] text-[#FF5A36] transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-110 group-hover:-translate-y-1">
+              <svg class="h-6 w-6 sm:h-7 sm:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><path d="M7 12h10"></path></svg>
+            </div>
+            <h3 class="text-[22px] sm:text-[26px] font-black tracking-[-0.04em] font-display">Scans group noise</h3>
+            <p class="mt-3 sm:mt-4 text-[15px] sm:text-[16px] font-medium leading-relaxed text-[#74736D]">Knowtis turns busy class chats into a short briefing of deadlines, events, and alerts.</p>
+
+            <div class="mt-8 sm:mt-12 h-36 sm:h-40 w-full rounded-[1.25rem] sm:rounded-[1.5rem] border border-[#FFD8CD]/50 bg-gradient-to-br from-[#FFF0EB] via-[#FFF9F6] to-white p-4 flex flex-col items-center justify-center overflow-hidden relative shadow-[inset_0_1px_1px_rgba(255,255,255,1)]">
+              <div class="relative z-10 flex flex-col items-center gap-3 w-full">
+                <div class="flex items-center justify-center gap-3">
+                  <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-white p-2 shadow-[0_8px_16px_rgba(37,211,102,0.2)] ring-2 ring-white">
+                    <img src="/whatsapp-logo.svg" alt="WhatsApp" class="w-6 h-6 object-contain">
+                  </div>
+                  <div class="flex h-7 w-7 items-center justify-center rounded-full bg-white border border-[#FFD8CD] text-[#FF5A36]">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+                  </div>
+                  <img src="/20260907_112508.png" alt="Knowtis" class="h-10 w-10 rounded-2xl shadow-[0_8px_16px_rgba(30,30,30,0.2)] ring-2 ring-white object-cover">
+                </div>
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/90 border border-[#FFD8CD]/60 text-[9.5px] font-black uppercase tracking-[0.16em] text-[#D93A1C] shadow-sm">
+                  <svg class="w-3 h-3 text-[#FF5A36]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"></path></svg>
+                  WhatsApp Noise → Knowtis Briefing
+                </span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Benefit Card 2 -->
+        <article class="group rounded-[2rem] sm:rounded-[2.5rem] bg-black/[0.02] p-1.5 sm:p-2 border border-black/[0.04] transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-black/[0.04] scroll-reveal">
+          <div class="h-full w-full rounded-[calc(2rem-0.5rem)] sm:rounded-[calc(2.5rem-0.5rem)] bg-white p-6 sm:p-10 shadow-[0_24px_54px_rgba(0,0,0,0.02),inset_0_1px_0_rgba(255,255,255,1)] flex flex-col items-center text-center transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[0.99]">
+            <div class="mb-6 sm:mb-8 grid h-14 w-14 sm:h-16 sm:w-16 place-items-center rounded-[1rem] sm:rounded-[1.25rem] shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] bg-gradient-to-b from-[#FFF5E1] to-[#FFE8AF] text-[#B45309] transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-110 group-hover:-translate-y-1">
+              <svg class="h-6 w-6 sm:h-7 sm:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path></svg>
+            </div>
+            <h3 class="text-[22px] sm:text-[26px] font-black tracking-[-0.04em] font-display">Builds your calendar</h3>
+            <p class="mt-3 sm:mt-4 text-[15px] sm:text-[16px] font-medium leading-relaxed text-[#74736D]">Detected dates become clean academic events, so your week stops living in screenshots.</p>
+
+            <div class="mt-8 sm:mt-12 h-36 sm:h-40 w-full rounded-[1.25rem] sm:rounded-[1.5rem] border border-[#FFE8AF] bg-gradient-to-br from-[#FFFBF2] via-white to-[#FFF8E7] p-3 flex flex-col justify-between overflow-hidden relative shadow-[inset_0_1px_1px_rgba(255,255,255,1)]">
+              <div class="flex items-center justify-between pb-1.5 border-b border-[#F5E5C9]">
+                <div class="flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 text-[#B45309]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path></svg>
+                  <span class="text-[10px] font-black uppercase tracking-wider text-[#B45309]">AUG 2026</span>
+                </div>
+                <span class="text-[9px] font-bold text-[#D97706] bg-[#FFF3D6] px-2 py-0.5 rounded-full">Week 6</span>
+              </div>
+              <div class="grid grid-cols-7 gap-1 text-center my-1">
+                <div class="py-0.5 rounded-[6px] text-[8.5px] font-bold text-[#8C6D38]">M<div class="text-[7.5px] font-extrabold">10</div></div>
+                <div class="py-0.5 rounded-[6px] text-[8.5px] font-bold text-[#8C6D38]">T<div class="text-[7.5px] font-extrabold">11</div></div>
+                <div class="py-0.5 rounded-[6px] text-[8.5px] font-black bg-[#FF5A36] text-white shadow-sm">W<div class="text-[7.5px] font-extrabold">12</div></div>
+                <div class="py-0.5 rounded-[6px] text-[8.5px] font-bold text-[#8C6D38]">T<div class="text-[7.5px] font-extrabold">13</div></div>
+                <div class="py-0.5 rounded-[6px] text-[8.5px] font-bold text-[#8C6D38]">F<div class="text-[7.5px] font-extrabold">14</div></div>
+                <div class="py-0.5 rounded-[6px] text-[8.5px] font-bold text-[#8C6D38]">S<div class="text-[7.5px] font-extrabold">15</div></div>
+                <div class="py-0.5 rounded-[6px] text-[8.5px] font-bold text-[#8C6D38]">S<div class="text-[7.5px] font-extrabold">16</div></div>
+              </div>
+              <div class="flex items-center justify-between bg-white rounded-xl border border-[#F3E2C4] p-2 shadow-sm">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="h-2 w-2 rounded-full bg-[#FF5A36] shrink-0"></span>
+                  <div class="min-w-0 text-left">
+                    <p class="text-[10px] font-black text-[#171717] truncate leading-tight">ELE401 · Technical Report</p>
+                    <p class="text-[8.5px] font-bold text-[#B45309] leading-tight mt-0.5">Due Wed, 2:00 PM</p>
+                  </div>
+                </div>
+                <span class="text-[8px] font-black uppercase tracking-wider text-[#FF5A36] bg-[#FFF0EB] px-1.5 py-0.5 rounded-md shrink-0">DEADLINE</span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Benefit Card 3 -->
+        <article class="group rounded-[2rem] sm:rounded-[2.5rem] bg-black/[0.02] p-1.5 sm:p-2 border border-black/[0.04] transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-black/[0.04] scroll-reveal">
+          <div class="h-full w-full rounded-[calc(2rem-0.5rem)] sm:rounded-[calc(2.5rem-0.5rem)] bg-white p-6 sm:p-10 shadow-[0_24px_54px_rgba(0,0,0,0.02),inset_0_1px_0_rgba(255,255,255,1)] flex flex-col items-center text-center transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[0.99]">
+            <div class="mb-6 sm:mb-8 grid h-14 w-14 sm:h-16 sm:w-16 place-items-center rounded-[1rem] sm:rounded-[1.25rem] shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] bg-gradient-to-b from-[#E7ECFF] to-[#D4C5F9] text-[#7C6BE0] transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-110 group-hover:-translate-y-1">
+              <svg class="h-6 w-6 sm:h-7 sm:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"></path><path d="M20 3v4"></path><path d="M22 5h-4"></path><path d="M4 17v2"></path><path d="M5 18H3"></path></svg>
+            </div>
+            <h3 class="text-[22px] sm:text-[26px] font-black tracking-[-0.04em] font-display">Explains what matters</h3>
+            <p class="mt-3 sm:mt-4 text-[15px] sm:text-[16px] font-medium leading-relaxed text-[#74736D]">Ask the assistant what changed, what is urgent, and what you should do next.</p>
+
+            <div class="mt-8 sm:mt-12 h-36 sm:h-40 w-full rounded-[1.25rem] sm:rounded-[1.5rem] border border-[#FAD7CD]/70 bg-gradient-to-br from-[#FFF9F6] via-white to-[#FBFBFA] p-3 flex flex-col justify-between overflow-hidden relative shadow-[0_12px_24px_rgba(255,90,54,0.04),inset_0_1px_0_rgba(255,255,255,1)]">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-1.5">
+                  <div class="flex h-5 w-5 items-center justify-center rounded-md bg-[#FF5A36] text-white shadow-sm">
+                    <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"></path></svg>
+                  </div>
+                  <span class="text-[10px] font-black uppercase tracking-[0.08em] text-[#686862]">Your Daily Briefing</span>
+                </div>
+                <span class="flex h-2 w-2 rounded-full bg-[#32B87B] animate-pulse"></span>
+              </div>
+              <p class="text-[10.5px] font-bold text-[#171717] text-left leading-tight my-0.5 line-clamp-2">
+                &ldquo;2 deadlines due this week, 1 urgent quiz alert. Finish ELE401 draft before Friday.&rdquo;
+              </p>
+              <div class="flex items-center justify-between gap-1 pt-1.5 border-t border-[#F5E5DF]">
+                <div class="flex items-center gap-1">
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[#FFF0EB] border border-[#FFD8CD] text-[8.5px] font-black text-[#FF5A36]">
+                    <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c1.1 0 2 .9 2 2 0 .74-.4 1.38-1 1.72v2.56c2.8.5 5 2.94 5 5.72 0 3.31-2.69 6-6 6s-6-2.69-6-6c0-2.78 2.2-5.22 5-5.72V5.72C10.4 5.38 10 4.74 10 4c0-1.1.9-2 2-2z"/></svg> 2 due
+                  </span>
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-50 border border-red-100 text-[8.5px] font-black text-red-600">
+                    <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> 1 alert
+                  </span>
+                </div>
+                <span class="inline-flex items-center gap-0.5 text-[9px] font-black text-[#FF5A36]">
+                  Discuss AI <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M7 17L17 7"></path><path d="M7 7h10v10"></path></svg>
+                </span>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- 4. Target Audience (For who?) -->
+    <section class="py-24 lg:py-40 relative" id="audience">
+      <div class="absolute inset-0 bg-[#F4F3EF]/50 rounded-[3rem] sm:rounded-[4rem] -mx-4 sm:-mx-8 lg:-mx-12 -z-10"></div>
+      
+      <div class="flex flex-col items-center text-center max-w-[800px] mx-auto mb-16 sm:mb-20 scroll-reveal">
+        <span class="mb-4 sm:mb-6 rounded-full bg-white px-4 py-1.5 text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] text-[#74736D] shadow-sm">Target Audience</span>
+        <h2 class="text-[clamp(36px,6vw,64px)] font-black leading-[0.96] tracking-[-0.05em] font-display">For who?</h2>
+        <p class="mt-4 sm:mt-6 text-[17px] sm:text-[20px] font-medium leading-relaxed text-[#5F5F59]">Knowtis is built for students whose entire semester runs on WhatsApp class groups.</p>
+      </div>
+
+      <div class="grid md:grid-cols-3 gap-6 relative max-w-[1000px] mx-auto">
+        <!-- Persona 1 -->
+        <div class="relative z-10 flex flex-col items-center text-center bg-white p-8 sm:p-10 rounded-[2rem] sm:rounded-[2.5rem] shadow-[0_12px_32px_rgba(0,0,0,0.02),inset_0_1px_0_rgba(255,255,255,1)] border border-black/[0.04] scroll-reveal">
+          <div class="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-[#FFF0EB] border border-[#FFD8CD]/50 flex items-center justify-center text-[#FF5A36] mb-6 sm:mb-8 shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)]">
+            <svg class="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"></path><path d="M6 12v5c3 3 9 3 12 0v-5"></path></svg>
+          </div>
+          <h3 class="text-xl sm:text-2xl font-black tracking-[-0.02em] mb-3 sm:mb-4 font-display">100-Level Freshers</h3>
+          <p class="text-[15px] sm:text-[16px] font-medium text-[#74736D] leading-relaxed">Settle in. Orientation dates, venue changes, and first deadlines land on your dashboard from day one.</p>
+        </div>
+
+        <!-- Persona 2 -->
+        <div class="relative z-10 flex flex-col items-center text-center bg-white p-8 sm:p-10 rounded-[2rem] sm:rounded-[2.5rem] shadow-[0_12px_32px_rgba(0,0,0,0.02),inset_0_1px_0_rgba(255,255,255,1)] border border-black/[0.04] scroll-reveal">
+          <div class="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-[#FFF0EB] border border-[#FFD8CD]/50 flex items-center justify-center text-[#FF5A36] mb-6 sm:mb-8 shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)]">
+            <svg class="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2"></rect><line x1="2" x2="22" y1="20" y2="20"></line></svg>
+          </div>
+          <h3 class="text-xl sm:text-2xl font-black tracking-[-0.02em] mb-3 sm:mb-4 font-display">Final-Year Students</h3>
+          <p class="text-[15px] sm:text-[16px] font-medium text-[#74736D] leading-relaxed">Project defenses, seminars, and clearance dates are tracked for you, so your final year ships on time.</p>
+        </div>
+
+        <!-- Persona 3 -->
+        <div class="relative z-10 flex flex-col items-center text-center bg-white p-8 sm:p-10 rounded-[2rem] sm:rounded-[2.5rem] shadow-[0_12px_32px_rgba(0,0,0,0.02),inset_0_1px_0_rgba(255,255,255,1)] border border-black/[0.04] scroll-reveal">
+          <div class="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-[#FFF0EB] border border-[#FFD8CD]/50 flex items-center justify-center text-[#FF5A36] mb-6 sm:mb-8 shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)]">
+            <svg class="h-8 w-8 sm:h-10 sm:w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          </div>
+          <h3 class="text-xl sm:text-2xl font-black tracking-[-0.02em] mb-3 sm:mb-4 font-display">Course Reps</h3>
+          <p class="text-[15px] sm:text-[16px] font-medium text-[#74736D] leading-relaxed">Post once. Knowtis surfaces your announcements to classmates without you repeating them in three groups.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. Features Grid (Asymmetrical Bento) -->
+    <section class="py-24 lg:py-40" id="features">
+      <div class="flex flex-col items-center text-center max-w-[800px] mx-auto mb-16 sm:mb-20 scroll-reveal">
+        <span class="mb-4 sm:mb-6 rounded-full bg-black/5 px-4 py-1.5 text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] text-[#74736D]">Features</span>
+        <h2 class="text-[clamp(36px,6vw,64px)] font-black leading-[0.96] tracking-[-0.05em] font-display">Everything you need.</h2>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-5 sm:gap-6 auto-rows-auto md:auto-rows-[240px]">
+        <!-- Feature 0 (Large 8 cols, 2 rows) -->
+        <div class="md:col-span-8 md:row-span-2 group rounded-[2rem] sm:rounded-[2.5rem] bg-black/[0.02] p-1.5 sm:p-2 border border-black/[0.04] scroll-reveal">
+          <div class="h-full w-full rounded-[calc(2rem-0.5rem)] sm:rounded-[calc(2.5rem-0.5rem)] bg-white p-6 sm:p-12 shadow-sm flex flex-col">
+            <div class="h-10 w-10 sm:h-12 sm:w-12 rounded-[0.75rem] sm:rounded-[1rem] bg-[#F4F3EF] text-[#74736D] flex items-center justify-center mb-5 sm:mb-6 group-hover:bg-[#FF5A36] group-hover:text-white transition-colors duration-500">
+              <svg class="h-5 w-5 sm:h-6 sm:w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><path d="M7 12h10"></path></svg>
+            </div>
+            <h4 class="text-2xl sm:text-3xl font-black tracking-tight mb-3 sm:mb-4 font-display">AI Chat Summaries</h4>
+            <p class="text-[15px] sm:text-[17px] font-medium text-[#74736D] leading-relaxed max-w-[400px] mb-6 sm:mb-0">Catch up on what mattered in seconds — even after hundreds of messages.</p>
+            
+            <div class="mt-auto h-40 sm:h-48 w-full rounded-[1.25rem] sm:rounded-[1.5rem] border border-black/5 bg-gradient-to-br from-[#F4F3EF] to-white flex items-center justify-center overflow-hidden relative">
+              <div class="relative z-10 flex flex-col items-start gap-2 w-full px-6">
+                <div class="flex items-center gap-2">
+                  <svg class="h-3 w-3 text-[#FF5A36]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"></path></svg>
+                  <span class="text-[7px] font-black uppercase tracking-[0.2em] text-[#C83C21]">AI Summary</span>
+                </div>
+                <div class="space-y-1.5 w-full">
+                  <div class="h-2.5 w-[85%] rounded-full bg-[#FFE6DE]"></div>
+                  <div class="h-2.5 w-[65%] rounded-full bg-[#F4F3EF]"></div>
+                  <div class="h-2.5 w-[75%] rounded-full bg-[#FFF5E1]"></div>
+                </div>
+                <div class="flex items-center gap-1.5 mt-1">
+                  <span class="inline-flex items-center rounded-full bg-[#FF5A36]/10 px-2 py-0.5 text-[6px] font-bold text-[#C83C21]">3 updates</span>
+                  <span class="inline-flex items-center rounded-full bg-[#1C8D5A]/10 px-2 py-0.5 text-[6px] font-bold text-[#047857]">1 urgent</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature 1: Auto-Calendar Sync (4 cols, 1 row) -->
+        <div class="md:col-span-4 md:row-span-1 rounded-[2rem] sm:rounded-[2.5rem] bg-black/[0.02] p-1.5 sm:p-2 border border-black/[0.04] scroll-reveal">
+          <div class="h-full w-full rounded-[calc(2rem-0.5rem)] sm:rounded-[calc(2.5rem-0.5rem)] bg-white p-6 sm:p-8 shadow-sm flex flex-col group hover:shadow-md transition-shadow duration-500">
+            <div class="h-10 w-10 rounded-full bg-[#F4F3EF] text-[#74736D] flex items-center justify-center mb-4 group-hover:bg-[#FF5A36] group-hover:text-white transition-colors duration-500">
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path></svg>
+            </div>
+            <h4 class="text-lg sm:text-xl font-black tracking-tight mb-2 font-display">Auto-Calendar Sync</h4>
+            <p class="text-[14px] sm:text-[15px] font-medium text-[#74736D] leading-relaxed mb-4">Deadlines land on your schedule the moment they are detected.</p>
+            <div class="mt-auto h-8 w-full rounded-lg bg-gradient-to-r from-[#FFF5E1] to-[#FFE8AF] flex items-center justify-center">
+              <div class="flex gap-1 items-center">
+                <div class="w-3 h-3 rounded-[2px] bg-white border border-[#B45309]/20 flex items-center justify-center text-[4px] font-bold text-[#B45309]">16</div>
+                <svg class="h-3 w-3 text-[#B45309]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path></svg>
+                <span class="text-[6px] font-bold text-[#B45309] uppercase tracking-[0.1em]">synced</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature 2: Priority Alerts (4 cols, 1 row) -->
+        <div class="md:col-span-4 md:row-span-1 rounded-[2rem] sm:rounded-[2.5rem] bg-black/[0.02] p-1.5 sm:p-2 border border-black/[0.04] scroll-reveal">
+          <div class="h-full w-full rounded-[calc(2rem-0.5rem)] sm:rounded-[calc(2.5rem-0.5rem)] bg-white p-6 sm:p-8 shadow-sm flex flex-col group hover:shadow-md transition-shadow duration-500">
+            <div class="h-10 w-10 rounded-full bg-[#F4F3EF] text-[#74736D] flex items-center justify-center mb-4 group-hover:bg-[#FF5A36] group-hover:text-white transition-colors duration-500">
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.268 21a2 2 0 0 0 3.464 0"></path><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"></path></svg>
+            </div>
+            <h4 class="text-lg sm:text-xl font-black tracking-tight mb-2 font-display">Priority Alerts</h4>
+            <p class="text-[14px] sm:text-[15px] font-medium text-[#74736D] leading-relaxed mb-4">Notifications only when an academic deadline moves or appears.</p>
+            <div class="mt-auto h-8 w-full rounded-lg bg-gradient-to-r from-[#FFF0EB] to-[#FFE6DE] flex items-center justify-center">
+              <div class="flex gap-1.5 items-center">
+                <span class="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-[6px] font-bold text-[#C83C21]">
+                  <svg class="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.268 21a2 2 0 0 0 3.464 0"></path><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"></path></svg>
+                  ALERT
+                </span>
+                <span class="text-[6px] font-bold text-[#C83C21]">ELE310 Quiz moved → Fri</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature 3: Smart Silencing -->
+        <div class="md:col-span-4 md:row-span-1 rounded-[2rem] sm:rounded-[2.5rem] bg-black/[0.02] p-1.5 sm:p-2 border border-black/[0.04] scroll-reveal">
+          <div class="h-full w-full rounded-[calc(2rem-0.5rem)] sm:rounded-[calc(2.5rem-0.5rem)] bg-white p-6 sm:p-8 shadow-sm flex flex-col group hover:shadow-md transition-shadow duration-500">
+            <div class="h-10 w-10 rounded-full bg-[#F4F3EF] text-[#74736D] flex items-center justify-center mb-4 group-hover:bg-[#FF5A36] group-hover:text-white transition-colors duration-500">
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="22" y1="9" x2="16" y2="15"></line><line x1="16" y1="9" x2="22" y2="15"></line></svg>
+            </div>
+            <h4 class="text-lg sm:text-xl font-black tracking-tight mb-2 font-display">Smart Silencing</h4>
+            <p class="text-[14px] sm:text-[15px] font-medium text-[#74736D] leading-relaxed">Memes, jokes, and small talk stay out of your way in study groups.</p>
+            <div class="mt-3 h-7 w-full rounded-lg bg-gradient-to-r from-[#F4F3EF] to-[#E9E9E6] flex items-center justify-center">
+              <span class="text-[6px] font-bold text-[#5F5F59] uppercase tracking-[0.1em]">mute casual chat &amp; memes</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature 4: Deadline Tracking -->
+        <div class="md:col-span-4 md:row-span-1 rounded-[2rem] sm:rounded-[2.5rem] bg-black/[0.02] p-1.5 sm:p-2 border border-black/[0.04] scroll-reveal">
+          <div class="h-full w-full rounded-[calc(2rem-0.5rem)] sm:rounded-[calc(2.5rem-0.5rem)] bg-white p-6 sm:p-8 shadow-sm flex flex-col group hover:shadow-md transition-shadow duration-500">
+            <div class="h-10 w-10 rounded-full bg-[#F4F3EF] text-[#74736D] flex items-center justify-center mb-4 group-hover:bg-[#FF5A36] group-hover:text-white transition-colors duration-500">
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16.5 12"></polyline></svg>
+            </div>
+            <h4 class="text-lg sm:text-xl font-black tracking-tight mb-2 font-display">Deadline Tracking</h4>
+            <p class="text-[14px] sm:text-[15px] font-medium text-[#74736D] leading-relaxed">Visual countdowns to your most important submissions.</p>
+            <div class="mt-3 h-7 w-full rounded-lg bg-gradient-to-r from-[#FFF5E1] to-[#FFE8AF] flex items-center justify-center">
+              <span class="text-[6px] font-bold text-[#5F5F59] uppercase tracking-[0.1em]">countdown to submission</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature 5: Deep Search -->
+        <div class="md:col-span-4 md:row-span-1 rounded-[2rem] sm:rounded-[2.5rem] bg-black/[0.02] p-1.5 sm:p-2 border border-black/[0.04] scroll-reveal">
+          <div class="h-full w-full rounded-[calc(2rem-0.5rem)] sm:rounded-[calc(2.5rem-0.5rem)] bg-white p-6 sm:p-8 shadow-sm flex flex-col group hover:shadow-md transition-shadow duration-500">
+            <div class="h-10 w-10 rounded-full bg-[#F4F3EF] text-[#74736D] flex items-center justify-center mb-4 group-hover:bg-[#FF5A36] group-hover:text-white transition-colors duration-500">
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </div>
+            <h4 class="text-lg sm:text-xl font-black tracking-tight mb-2 font-display">Deep Search</h4>
+            <p class="text-[14px] sm:text-[15px] font-medium text-[#74736D] leading-relaxed">Find any past announcement or shared link in two taps.</p>
+            <div class="mt-3 h-7 w-full rounded-lg bg-gradient-to-r from-[#E7ECFF] to-[#D4C5F9] flex items-center justify-center">
+              <span class="text-[6px] font-bold text-[#5F5F59] uppercase tracking-[0.1em]">search past announcements</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8. Pricing Section -->
+    <section class="py-24 lg:py-40" id="pricing">
+      <div class="flex flex-col items-center text-center max-w-[800px] mx-auto mb-16 sm:mb-20 scroll-reveal">
+        <h2 class="text-[clamp(36px,6vw,64px)] font-black leading-[0.96] tracking-[-0.05em] font-display">Pricing</h2>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-8 max-w-[900px] mx-auto">
+        <!-- Basic Plan -->
+        <div class="rounded-[2rem] sm:rounded-[3rem] bg-black/[0.02] p-1.5 sm:p-2 border border-black/[0.04] scroll-reveal">
+          <div class="h-full w-full rounded-[calc(2rem-0.5rem)] sm:rounded-[calc(3rem-0.5rem)] bg-white p-8 sm:p-12 shadow-sm flex flex-col">
+            <h3 class="text-2xl sm:text-3xl font-black mb-2 font-display">Basic</h3>
+            <div class="flex items-baseline gap-1 mb-8 sm:mb-10">
+              <span class="text-5xl sm:text-6xl font-black font-display">₦0</span>
+              <span class="text-[15px] sm:text-[17px] text-[#74736D] font-medium">/month</span>
+            </div>
+            <ul class="space-y-4 sm:space-y-5 mb-10 sm:mb-12 flex-1">
+              <li class="flex items-center gap-3 sm:gap-4 text-[15px] sm:text-[16px] font-medium text-[#5F5F59]">
+                <svg class="h-5 w-5 sm:h-6 sm:w-6 text-[#1C8D5A] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                2 Course Groups
+              </li>
+              <li class="flex items-center gap-3 sm:gap-4 text-[15px] sm:text-[16px] font-medium text-[#5F5F59]">
+                <svg class="h-5 w-5 sm:h-6 sm:w-6 text-[#1C8D5A] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                AI Deadline Extraction
+              </li>
+              <li class="flex items-center gap-3 sm:gap-4 text-[15px] sm:text-[16px] font-medium text-[#5F5F59]">
+                <svg class="h-5 w-5 sm:h-6 sm:w-6 text-[#1C8D5A] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Basic Calendar Sync
+              </li>
+            </ul>
+            <a href="/knowtis-app.apk" download class="group flex min-h-[56px] sm:min-h-[64px] items-center justify-between gap-4 rounded-full border-2 border-black/5 bg-transparent pl-6 sm:pl-8 pr-1.5 sm:pr-2 py-1.5 sm:py-2 text-[15px] sm:text-[17px] font-bold text-[#171717] transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-black/5 active:scale-[0.98]">
+              Get Started
+              <span class="grid h-10 w-10 sm:h-12 sm:w-12 place-items-center rounded-full bg-white shadow-sm transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 group-hover:translate-x-1">
+                <svg class="h-4 w-4 sm:h-5 sm:w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+              </span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Pro Plan -->
+        <div class="rounded-[2rem] sm:rounded-[3rem] bg-[#FF5A36] p-1.5 sm:p-2 shadow-[0_32px_64px_rgba(255,90,54,0.2)] relative scroll-reveal">
+          <div class="absolute -top-3 sm:-top-4 left-1/2 -translate-x-1/2 bg-[#171717] text-white px-4 sm:px-5 py-1.5 sm:py-2 rounded-full text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] shadow-lg z-10 whitespace-nowrap">
+            Most Popular
+          </div>
+          <div class="h-full w-full rounded-[calc(2rem-0.5rem)] sm:rounded-[calc(3rem-0.5rem)] bg-gradient-to-b from-[#FFF0EB] to-white p-8 sm:p-12 flex flex-col shadow-[inset_0_1px_1px_rgba(255,255,255,1)]">
+            <h3 class="text-2xl sm:text-3xl font-black mb-2 text-[#D93A1C] font-display">Pro</h3>
+            <div class="flex items-baseline gap-1 mb-8 sm:mb-10">
+              <span class="text-5xl sm:text-6xl font-black font-display">₦4,000</span>
+              <span class="text-[15px] sm:text-[17px] text-[#74736D] font-medium">/month</span>
+            </div>
+            <ul class="space-y-4 sm:space-y-5 mb-10 sm:mb-12 flex-1">
+              <li class="flex items-center gap-3 sm:gap-4 text-[15px] sm:text-[16px] font-bold">
+                <svg class="h-5 w-5 sm:h-6 sm:w-6 text-[#FF5A36] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Unlimited Groups
+              </li>
+              <li class="flex items-center gap-3 sm:gap-4 text-[15px] sm:text-[16px] font-bold">
+                <svg class="h-5 w-5 sm:h-6 sm:w-6 text-[#FF5A36] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Advanced AI Insights
+              </li>
+              <li class="flex items-center gap-3 sm:gap-4 text-[15px] sm:text-[16px] font-bold">
+                <svg class="h-5 w-5 sm:h-6 sm:w-6 text-[#25D366] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                WhatsApp Group Sync
+              </li>
+              <li class="flex items-center gap-3 sm:gap-4 text-[15px] sm:text-[16px] font-bold">
+                <svg class="h-5 w-5 sm:h-6 sm:w-6 text-[#FF5A36] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Priority Support
+              </li>
+              <li class="flex items-center gap-3 sm:gap-4 text-[15px] sm:text-[16px] font-bold">
+                <svg class="h-5 w-5 sm:h-6 sm:w-6 text-[#FF5A36] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Real-time Push Alerts
+              </li>
+              <li class="flex items-center gap-3 sm:gap-4 text-[15px] sm:text-[16px] font-bold">
+                <svg class="h-5 w-5 sm:h-6 sm:w-6 text-[#FF5A36] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Smart Photo Scanning
+              </li>
+            </ul>
+            <a href="/knowtis-app.apk" download class="group flex min-h-[56px] sm:min-h-[64px] items-center justify-between gap-4 rounded-full bg-[#FF5A36] pl-6 sm:pl-8 pr-1.5 sm:pr-2 py-1.5 sm:py-2 text-[15px] sm:text-[17px] font-bold text-white shadow-[0_16px_32px_rgba(255,90,54,0.3)] transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:shadow-[0_24px_48px_rgba(255,90,54,0.4)] active:scale-[0.98]">
+              Download the App
+              <span class="grid h-10 w-10 sm:h-12 sm:w-12 place-items-center rounded-full bg-white/20 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 group-hover:bg-white/30 group-hover:translate-x-1">
+                <svg class="h-4 w-4 sm:h-5 sm:w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+              </span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9. FAQ Section -->
+    <section class="py-24 lg:py-40" id="faq">
+      <div class="grid lg:grid-cols-[1fr_1.5fr] gap-10 sm:gap-16 max-w-[1000px] mx-auto scroll-reveal">
+        <div>
+          <span class="mb-4 sm:mb-6 inline-block rounded-full bg-black/5 px-4 py-1.5 text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] text-[#74736D]">FAQ</span>
+          <h2 class="text-[clamp(36px,6vw,64px)] font-black leading-[0.96] tracking-[-0.05em] mb-4 sm:mb-6 font-display">Got questions?</h2>
+          <p class="text-[17px] sm:text-[19px] font-medium leading-relaxed text-[#5F5F59] mb-8 sm:mb-12">Have questions? We’ve got answers.</p>
+        </div>
+        
+        <div class="rounded-[2rem] sm:rounded-[2.5rem] bg-black/[0.02] p-1.5 sm:p-2 border border-black/[0.04]">
+          <div class="rounded-[calc(2rem-0.5rem)] sm:rounded-[calc(2.5rem-0.5rem)] bg-white p-6 sm:p-12 shadow-sm divide-y divide-[#F0F0ED]">
+            <!-- FAQ 1 -->
+            <div class="py-6 first:pt-0 last:pb-0">
+              <button type="button" class="faq-btn flex w-full items-center justify-between text-left focus:outline-none group">
+                <h3 class="text-lg sm:text-xl font-bold text-[#171717] group-hover:text-[#FF5A36] transition-colors pr-4">How does Knowtis access my group chats?</h3>
+                <span class="faq-icon grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/5 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]">
+                  <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </span>
+              </button>
+              <div class="accordion-content">
+                <div class="accordion-inner">
+                  <p class="pt-5 text-[15px] sm:text-[16px] leading-relaxed text-[#5F5F59] sm:pr-12">
+                    You paste a WhatsApp group invite link into Knowtis. The app joins as a silent watcher — it never sends messages, never reads your personal DMs, and only processes the groups you explicitly authorize.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- FAQ 2 -->
+            <div class="py-6 first:pt-0 last:pb-0">
+              <button type="button" class="faq-btn flex w-full items-center justify-between text-left focus:outline-none group">
+                <h3 class="text-lg sm:text-xl font-bold text-[#171717] group-hover:text-[#FF5A36] transition-colors pr-4">How do I get the app?</h3>
+                <span class="faq-icon grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/5 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]">
+                  <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </span>
+              </button>
+              <div class="accordion-content">
+                <div class="accordion-inner">
+                  <p class="pt-5 text-[15px] sm:text-[16px] leading-relaxed text-[#5F5F59] sm:pr-12">
+                    Knowtis is in open beta on Android. Download the APK directly from this page — no store needed. The Google Play and App Store listings go live when the beta ends, and iOS is on the roadmap. On WhatsApp's side, Knowtis reads only the class groups you authorize — never your personal DMs.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- FAQ 3 -->
+            <div class="py-6 first:pt-0 last:pb-0">
+              <button type="button" class="faq-btn flex w-full items-center justify-between text-left focus:outline-none group">
+                <h3 class="text-lg sm:text-xl font-bold text-[#171717] group-hover:text-[#FF5A36] transition-colors pr-4">Is my academic data secure?</h3>
+                <span class="faq-icon grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/5 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]">
+                  <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </span>
+              </button>
+              <div class="accordion-content">
+                <div class="accordion-inner">
+                  <p class="pt-5 text-[15px] sm:text-[16px] leading-relaxed text-[#5F5F59] sm:pr-12">
+                    Absolutely. We use enterprise-grade encryption. Your chat data is processed only to extract deadlines and events, and we never sell your data or use it for advertising.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- FAQ 4 -->
+            <div class="py-6 first:pt-0 last:pb-0">
+              <button type="button" class="faq-btn flex w-full items-center justify-between text-left focus:outline-none group">
+                <h3 class="text-lg sm:text-xl font-bold text-[#171717] group-hover:text-[#FF5A36] transition-colors pr-4">Can I try it for free?</h3>
+                <span class="faq-icon grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/5 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]">
+                  <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </span>
+              </button>
+              <div class="accordion-content">
+                <div class="accordion-inner">
+                  <p class="pt-5 text-[15px] sm:text-[16px] leading-relaxed text-[#5F5F59] sm:pr-12">
+                    Yes! Our free tier lets you link up to 2 class groups per semester with full AI deadline extraction and daily briefings.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- FAQ 5 -->
+            <div class="py-6 first:pt-0 last:pb-0">
+              <button type="button" class="faq-btn flex w-full items-center justify-between text-left focus:outline-none group">
+                <h3 class="text-lg sm:text-xl font-bold text-[#171717] group-hover:text-[#FF5A36] transition-colors pr-4">What if the AI misses a deadline?</h3>
+                <span class="faq-icon grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/5 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]">
+                  <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </span>
+              </button>
+              <div class="accordion-content">
+                <div class="accordion-inner">
+                  <p class="pt-5 text-[15px] sm:text-[16px] leading-relaxed text-[#5F5F59] sm:pr-12">
+                    Our AI is highly accurate and specifically trained on academic contexts. However, you always have the ability to manually add or edit events in your dashboard.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10. Final CTA -->
+    <section class="py-24 lg:py-40">
+      <div class="relative mx-auto max-w-[1100px] overflow-hidden rounded-[2.5rem] sm:rounded-[3.5rem] bg-[#171717] p-10 sm:p-16 lg:p-24 text-center shadow-[0_40px_100px_rgba(30,30,30,0.25)] scroll-reveal">
+        <!-- Ambient Glow -->
+        <div class="pointer-events-none absolute inset-0">
+          <div class="absolute -top-24 left-1/2 -translate-x-1/2 h-[320px] w-[620px] rounded-full bg-[radial-gradient(closest-side,rgba(255,90,54,0.20),transparent_70%)]"></div>
+          <div class="absolute bottom-0 right-0 h-[260px] w-[420px] rounded-full bg-[radial-gradient(closest-side,rgba(124,107,224,0.10),transparent_70%)]"></div>
+        </div>
+
+        <div class="relative z-10 flex flex-col items-center">
+          <span class="mb-6 sm:mb-8 inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] text-[#FFD8CD] backdrop-blur-md">
+            <span class="mr-2 h-1.5 w-1.5 rounded-full bg-[#FF5A36]"></span>
+            Start in under 60 seconds
+          </span>
+          <h2 class="max-w-[760px] text-[clamp(34px,6vw,68px)] font-black leading-[0.95] tracking-[-0.05em] text-white font-display">
+            Let the deadlines <span class="gradient-light-text">come to you</span>.
+          </h2>
+          <p class="mt-5 sm:mt-7 max-w-[520px] text-[16px] sm:text-[19px] font-medium leading-relaxed text-white/60">
+            Connect one class group today and get your first Night Brief this evening. Free to start — no card required.
+          </p>
+          <div class="mt-8 sm:mt-12 flex flex-col items-stretch gap-3 sm:gap-4 max-w-[420px] w-full">
+            <!-- Primary CTA: direct APK download (open beta) -->
+            <a href="/knowtis-app.apk" download class="group flex min-h-[52px] sm:min-h-[60px] items-center justify-between sm:justify-start gap-4 rounded-full bg-[#FF5A36] px-5 sm:pl-6 sm:pr-2 py-2 text-[14px] sm:text-[15px] font-bold text-white shadow-[0_16px_32px_rgba(255,90,54,0.3)] transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:shadow-[0_24px_48px_rgba(255,90,54,0.4)] active:scale-[0.97]">
+              <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h2v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V9H6v9z"></path><path d="M3.5 9a1.5 1.5 0 0 0-1.5 1.5v5a1.5 1.5 0 0 0 3 0v-5A1.5 1.5 0 0 0 3.5 9z"></path><path d="M20.5 9a1.5 1.5 0 0 0-1.5 1.5v5a1.5 1.5 0 0 0 3 0v-5a1.5 1.5 0 0 0-1.5-1.5z"></path><path d="M16.4 4.8l1.3-2.25a.5.5 0 0 0-.86-.5l-1.32 2.28A7.35 7.35 0 0 0 12 3.47c-1.25 0-2.43.29-3.48.8L7.2 2.06a.5.5 0 1 0-.87.5l1.3 2.24A7.26 7.26 0 0 0 5 10h14a7.26 7.26 0 0 0-2.6-5.2zM9.5 8a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5zm5 0a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5z"></path></svg>
+              <span>Download Android beta</span>
+              <span class="grid h-9 w-9 sm:h-11 sm:w-11 place-items-center rounded-full bg-white/20 group-hover:bg-white/30">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+              </span>
+            </a>
+
+            <!-- Store listings: not live yet, visibly disabled -->
+            <div class="flex flex-wrap items-center justify-center gap-2.5">
+              <div class="store-soon flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-[12px] sm:text-[13px] font-bold text-white/60" aria-disabled="true" title="Coming soon">
+                <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-1.707l2.573 1.49c.906.524.906 1.496 0 2.02l-2.573 1.49-2.573-2.5 2.573-2.5zM5.864 1.469L16.8 7.8l-2.302 2.302-8.635-8.635z"/></svg>
+                <span class="store-soon-label">Google Play</span>
+                <span class="rounded-full bg-white/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.15em] text-white/70">soon</span>
+              </div>
+              <div class="store-soon flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-[12px] sm:text-[13px] font-bold text-white/60" aria-disabled="true" title="Coming soon">
+                <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+                <span class="store-soon-label">App Store</span>
+                <span class="rounded-full bg-white/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.15em] text-white/70">soon</span>
+              </div>
+            </div>
+          </div>
+          <p class="mt-6 sm:mt-8 flex items-center gap-2 text-[12px] sm:text-[13px] font-medium text-white/40">
+            <svg class="h-4 w-4 text-[#1C8D5A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+            Android open beta · Google Play &amp; App Store coming soon · Free to start
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11. Footer -->
+    <footer class="mt-12 sm:mt-20 flex flex-col gap-10 sm:gap-12 border-t border-[#F0F0ED] py-12 sm:py-20">
+      <div class="flex flex-col lg:flex-row justify-between gap-12 sm:gap-16">
+        <div class="max-w-[360px]">
+          <a href="#" class="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 transition-transform hover:scale-105 active:scale-95 w-max">
+            <img src="/20260907_112508.png" alt="Knowtis" class="h-8 w-8 sm:h-10 sm:h-10 rounded-[10px] sm:rounded-[12px] object-cover">
+            <span class="text-xl sm:text-2xl font-black tracking-[-0.04em] font-display">Knowtis</span>
+          </a>
+          <p class="text-[15px] sm:text-[16px] font-medium text-[#74736D] leading-relaxed">
+            Built for students who would rather learn than scroll. Follow along and turn the chaos into a clean week.
+          </p>
+        </div>
+        
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-10 sm:gap-12 lg:gap-20">
+          <div class="flex flex-col gap-4 sm:gap-5">
+            <h5 class="font-black text-[#171717] text-[13px] sm:text-[15px] uppercase tracking-[0.1em] font-display">Product</h5>
+            <a href="#features" class="text-[15px] sm:text-[16px] font-medium text-[#74736D] hover:text-[#FF5A36] transition-colors">Features</a>
+            <a href="#pricing" class="text-[15px] sm:text-[16px] font-medium text-[#74736D] hover:text-[#FF5A36] transition-colors">Pricing</a>
+          </div>
+          <div class="flex flex-col gap-4 sm:gap-5">
+            <h5 class="font-black text-[#171717] text-[13px] sm:text-[15px] uppercase tracking-[0.1em] font-display">Legal</h5>
+            <a href="/privacy/" class="text-[15px] sm:text-[16px] font-medium text-[#74736D] hover:text-[#FF5A36] transition-colors">Privacy Policy</a>
+            <a href="/terms/" class="text-[15px] sm:text-[16px] font-medium text-[#74736D] hover:text-[#FF5A36] transition-colors">Terms of Service</a>
+          </div>
+          <div class="flex flex-col gap-4 sm:gap-5">
+            <h5 class="font-black text-[#171717] text-[13px] sm:text-[15px] uppercase tracking-[0.1em] font-display">Stay in touch</h5>
+            <a href="mailto:hello@knowtis.app" class="text-[15px] sm:text-[16px] font-medium text-[#74736D] hover:text-[#FF5A36] transition-colors">hello@knowtis.app</a>
+            <a href="https://x.com/knowtisapp" target="_blank" rel="noreferrer" class="text-[15px] sm:text-[16px] font-medium text-[#74736D] hover:text-[#FF5A36] transition-colors">Twitter</a>
+            <a href="https://instagram.com/knowtisapp" target="_blank" rel="noreferrer" class="text-[15px] sm:text-[16px] font-medium text-[#74736D] hover:text-[#FF5A36] transition-colors">Instagram</a>
+            <a href="https://wa.me/2348000000000" target="_blank" rel="noreferrer" class="text-[15px] sm:text-[16px] font-medium text-[#74736D] hover:text-[#25D366] transition-colors">WhatsApp</a>
+          </div>
+        </div>
+      </div>
+      
+      <div class="pt-8 sm:pt-10 border-t border-[#F0F0ED] flex flex-col sm:flex-row justify-between items-center gap-4 sm:gap-6 text-[14px] sm:text-[15px] font-medium text-[#A3A29C]">
+        <p>© <span id="current-year">2026</span> Knowtis. All rights reserved.</p>
+        <div class="flex items-center gap-2">
+          <span class="h-2 w-2 rounded-full bg-[#1C8D5A]"></span>
+          Systems operational
+        </div>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Interactive JavaScript Logic -->
+  <script>
+    // 1. Dynamic Year
+    document.getElementById('current-year').textContent = new Date().getFullYear();
+
+    // 2. Interactive FAQ Accordion
+    const faqButtons = document.querySelectorAll('.faq-btn');
+    faqButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const content = btn.nextElementSibling;
+        const icon = btn.querySelector('.faq-icon');
+        const isOpen = content.classList.contains('is-open');
+
+        // Close all accordions
+        document.querySelectorAll('.accordion-content').forEach((c) => c.classList.remove('is-open'));
+        document.querySelectorAll('.faq-icon').forEach((i) => {
+          i.classList.remove('rotate-180', 'bg-[#FFE6DE]', 'text-[#FF5A36]');
+        });
+
+        // Toggle clicked
+        if (!isOpen) {
+          content.classList.add('is-open');
+          icon.classList.add('rotate-180', 'bg-[#FFE6DE]', 'text-[#FF5A36]');
+        }
+      });
+    });
+
+    // 3. Navbar scroll hide/show
+    const nav = document.getElementById('island-nav');
+    let lastScrollY = window.scrollY;
+    window.addEventListener('scroll', () => {
+      const currentScrollY = window.scrollY;
+      if (currentScrollY > 100 && currentScrollY > lastScrollY) {
+        nav.style.transform = 'translateY(-120%)';
+      } else {
+        nav.style.transform = 'translateY(0)';
+      }
+      lastScrollY = currentScrollY;
+    }, { passive: true });
+
+    // 4. Staggered Scroll-Reveal Observer
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-revealed');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+    document.querySelectorAll('.scroll-reveal').forEach((el) => {
+      observer.observe(el);
+    });
+  </script>
+</body>
+</html>

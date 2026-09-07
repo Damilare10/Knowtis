@@ -1,0 +1,135 @@
+/*
+  Knowtis Landing Page CSS Design System
+
+  Loaded by public/landing.html, which is the canonical marketing landing page.
+  Tailwind utility classes come from the Play CDN script in that file; this sheet
+  supplies the base styles, brand tokens, gradients and animations on top.
+*/
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,600&display=swap');
+
+:root {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Outfit', 'Plus Jakarta Sans', -apple-system, sans-serif;
+  --brand-orange: #FF5A36;
+  --brand-orange-dark: #D93A1C;
+  --brand-orange-light: #FFF0EB;
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--font-sans);
+  background-color: #FDFDFD;
+  color: #171717;
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100dvh;
+  overflow-x: hidden;
+  position: relative;
+  background: radial-gradient(ellipse 80% 50% at 20% 10%, rgba(217,241,236,0.35), transparent 60%),
+              radial-gradient(ellipse 60% 40% at 80% 20%, rgba(246,179,159,0.25), transparent 55%),
+              radial-gradient(ellipse 50% 30% at 50% 40%, rgba(255,224,113,0.15), transparent 50%),
+              #FDFDFD;
+}
+
+::selection {
+  background-color: #FFD8CD;
+  color: #C83C21;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+/* Gradients */
+.gradient-brand-text {
+  background: linear-gradient(135deg, #FF5A36 0%, #D93A1C 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gradient-light-text {
+  background: linear-gradient(135deg, #FF8A66 0%, #FF4B24 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Animations */
+@keyframes floatBadgeLeft {
+  0%, 100% { transform: rotate(-4deg) translateY(0); }
+  50% { transform: rotate(-4deg) translateY(-12px); }
+}
+
+@keyframes floatBadgeRight {
+  0%, 100% { transform: rotate(3deg) translateY(0); }
+  50% { transform: rotate(3deg) translateY(12px); }
+}
+
+.animate-float-left {
+  animation: floatBadgeLeft 6s ease-in-out infinite;
+}
+
+.animate-float-right {
+  animation: floatBadgeRight 7s ease-in-out infinite 1s;
+}
+
+/* Scroll reveal helper */
+.scroll-reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.8s var(--ease-spring), transform 0.8s var(--ease-spring);
+}
+
+.scroll-reveal.is-revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Accordion Smooth Transition */
+.accordion-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.35s var(--ease-spring);
+}
+
+.accordion-content.is-open {
+  grid-template-rows: 1fr;
+}
+
+.accordion-inner {
+  overflow: hidden;
+}
+
+/* Micro Interactions */
+.hover-lift {
+  transition: transform 0.4s var(--ease-spring), box-shadow 0.4s var(--ease-spring);
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+}
+
+/* Store buttons that are not live yet (open beta) */
+.store-soon {
+  cursor: not-allowed;
+  user-select: none;
+  opacity: 0.6;
+}
+
+.store-soon .store-soon-label {
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  text-decoration-color: rgba(116, 115, 109, 0.45);
+}
